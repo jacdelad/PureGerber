@@ -1,5 +1,5 @@
 ﻿;{ PureGerber Module 1.0 WIP
-;25.10.2023
+;28.10.2023
 ;by Jac de Lad
 ;
 ;READ BEFORE USAGE:
@@ -28,8 +28,7 @@
 ;- variables ($1..$n)
 ;- aperture blocks (AB)
 ;- step and repeat (SR)
-;- Some transformations: LM, LR and LS
-;- AS/IN (deprecated anyway)
+;- Some transformations: LM, LR and LS -> development started
 ;
 ;This module/library does not really check for errors. Faulty Gerber files may be rendered incompletely without warning.
 ;
@@ -135,6 +134,8 @@ DeclareModule PureGerber
     Map ApertureMacro.Gerber_AM()
     Map Apertures.Gerber_Aperture()
     Polarity.a
+    ScaleFactor.f
+    Rotation.f
   EndStructure
   Structure Gerber_Pace
     ID.a
@@ -161,7 +162,7 @@ DeclareModule PureGerber
     Max.Pos
     Colors.Gerber_Colors
     FillMode.a
-    BoardSize.Pos;in mm
+    BoardSize.Pos;always in mm
     DrawScaling.f
     Unit.a;mm/inch
     Log.Gerber_Log
@@ -176,19 +177,20 @@ DeclareModule PureGerber
   Declare IsGerber(*Gerber.Gerber)
   Declare FreeGerber(*Gerber.Gerber)
   Declare CatchGerber(*Memory,Size=0)
-  Declare SaveGBRData(*Gerber.Gerber)
   Declare AssignGerberToGadget(Gadget.i,*Gerber.Gerber,NoDrawing.a=#False)
   Declare CreatePureGerber(*Gerber.Gerber,Flags=#Gerber_PGF_All);Returns a PureGerber object (size via MemorySize(*Memory))
   Declare LoadPureGerber(*Memory,Size.l=0);Loads a PureGerber object, zero size means MemorySize(*Memory)
   Declare IsGerberValid(*Gerber.Gerber)
   Declare ResetGerberGadgetData(Gadget.i,ReDraw.a=#True);Resets movement and zoom, not the Gerber data!
-  Declare ForceDrawGerberGadget(Gadget.i)
+  Declare RedrawGerberGadget(Gadget.i)
 EndDeclareModule
 
 Module PureGerber
   EnableExplicit
-  #NewaysMode = #True ;Draws Contours and Fiducials in different colors (according to Neways standard)
+  #NewaysMode = #False ;Draws Contours and Fiducials in different colors (according to Neways standard)
   #Gerber_MagicNumber = $208E0EABE50B1EC7;PureGerberObject
+  #Gerber_Gadget_StandardZoom = 0.1      ;Standardzoomvalue on GerberGadget (±0.2*CurrentZoom)
+  #Gerber_DrawScaling = 0.98;Inital scaling factor, 1% of space on each side by default
   Enumeration RegEx
     #Gerber_RegEx_Header
     #Gerber_RegEx_ExposureMode
@@ -198,6 +200,9 @@ Module PureGerber
     #Gerber_RegEx_Unit
     #Gerber_RegEx_Attributes
     #Gerber_RegEx_Omitter
+    #Gerber_RegEx_LS
+    #Gerber_RegEx_LM
+    #Gerber_RegEx_LR
     #Gerber_RegEx_LP
     #Gerber_RegEx_MI
     #Gerber_RegEx_SF
@@ -205,7 +210,6 @@ Module PureGerber
     #Gerber_RegEx_IR
     #Gerber_RegEx_AS
     #Gerber_RegEx_SR
-    #Gerber_RegEx_Preprocess
     #Gerber_RegEx_PreprocessX
     #Gerber_RegEx_PreprocessY
     #Gerber_RegEx_Pace
@@ -213,11 +217,14 @@ Module PureGerber
     #Gerber_Command_D01
     #Gerber_Command_D02
     #Gerber_Command_D03
+    #Gerber_Command_Single
     #Gerber_Command_G01
     #Gerber_Command_G23
     #Gerber_Command_G04
-    #Gerber_Command_Generic
     #Gerber_Command_FollowUp
+    #Gerber_Command_LS
+    #Gerber_Command_LR
+    #Gerber_Command_LM
     #Gerber_Command_LP
     #Gerber_Command_End
     #Gerber_RegEx_ApertureBlock
@@ -288,6 +295,9 @@ Module PureGerber
   CreateRegularExpression(#Gerber_RegEx_Apertures,"^ADD(\d+)([^\,\%]+)\,?(.*)\*$")
   CreateRegularExpression(#Gerber_RegEx_Attributes,"^TF\.(\w+)\,(.+)\*$")
   CreateRegularExpression(#Gerber_RegEx_Omitter,"[XYIJ][-?\d]+")
+  CreateRegularExpression(#Gerber_RegEx_LS,"^LS([\d\.]+)\*$")
+  CreateRegularExpression(#Gerber_RegEx_LR,"^LR(\d+)\*$")
+  CreateRegularExpression(#Gerber_RegEx_LM,"^LP([XY]+)\*$")
   CreateRegularExpression(#Gerber_RegEx_LP,"^LP([CD])\*$")
   CreateRegularExpression(#Gerber_RegEx_MI,"^MI([AB][01])([B][01])?\*$")
   CreateRegularExpression(#Gerber_RegEx_SF,"^SF([AB][\d\.]+)([B][\d\.]+)?\*$")
@@ -296,20 +306,22 @@ Module PureGerber
   CreateRegularExpression(#Gerber_RegEx_AS,"^ASAXBY|ASAYBX\*$")
   CreateRegularExpression(#Gerber_RegEx_SR,"^SRX(\d+)Y(\d+)I(-?[\d\.]+)J(-?[\d\.]+)\*$")
   CreateRegularExpression(#Gerber_RegEx_ApertureBlock,"^AB(D\d+)?\*$")
-  CreateRegularExpression(#Gerber_RegEx_Preprocess,"((X)([-?\d\.]+))((Y)([-?\d\.]+))|((X)([-?\d\.]+))|((Y)([-?\d\.]+)")
-  CreateRegularExpression(#Gerber_RegEx_PreprocessX,"X([-?\d\.]+)")
-  CreateRegularExpression(#Gerber_RegEx_PreprocessY,"Y([-?\d\.]+)")
+  CreateRegularExpression(#Gerber_RegEx_PreprocessX,"X(-?\d+)")
+  CreateRegularExpression(#Gerber_RegEx_PreprocessY,"Y(-?\d+)")
   CreateRegularExpression(#Gerber_RegEx_Pace,"^([XYIJDGM]-?\d+)([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?$")
   CreateRegularExpression(#Gerber_Command_SelectAperture,"^((G54D|D)(\d+))$")
-  CreateRegularExpression(#Gerber_Command_Generic,"^([XYIJD])(-?\d+)(([XYIJD])(-?\d+))?(([XYIJD])(-?\d+))?(([XYIJD])(-?\d+))?(([XYIJD])(-?\d+))?(([XYIJD])(-?\d+))?$")
   CreateRegularExpression(#Gerber_Command_D01,"^([XYIJ])(-?\d+)(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?D01$")
   CreateRegularExpression(#Gerber_Command_D02,"^([XY])(-?\d+)(([XY])(-?\d+))?D02$")
   CreateRegularExpression(#Gerber_Command_D03,"^(G55)?([XY])(-?\d+)(([XY])(-?\d+))?D03$")
+  CreateRegularExpression(#Gerber_Command_Single,"^G(\d{2})$")
   CreateRegularExpression(#Gerber_Command_G01,"^G01([XY])(-?\d+)(([XY])(-?\d+))?(D0[12])?$")
   CreateRegularExpression(#Gerber_Command_G23,"^G0[23]([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?(D01)?$")
   CreateRegularExpression(#Gerber_Command_G04,"^G04.*\*$")
   CreateRegularExpression(#Gerber_Command_FollowUp,"^([XYIJ]-?\d+){1,4}$")
   CreateRegularExpression(#Gerber_Command_LP,"^LP([CD])$")
+  CreateRegularExpression(#Gerber_Command_LS,"^LS([\d\.]+)$")
+  CreateRegularExpression(#Gerber_Command_LR,"^LR(\d+)$")
+  CreateRegularExpression(#Gerber_Command_LM,"^LM([XY]+)$")
   CreateRegularExpression(#Gerber_Command_End,"^M0[012]$")
   ;}
   Enumeration PaceID
@@ -337,11 +349,12 @@ Module PureGerber
     LastX.l
     LastY.l
     Zoom.f
+    ZoomFactor.f
     LeftLock.a
-    NextDraw.q
     LastActiveGadget.i
     SizeX.l
     SizeY.l
+    UserData.i
   EndStructure
   
   UseLZMAPacker()
@@ -526,12 +539,14 @@ Module PureGerber
       Position\Y+NewPosition\Y
     EndIf
   EndMacro
+  Macro CheckPath(Diff=0)
+    If PathBoundsX()-Diff<*Gerber\Min\X:*Gerber\Min\X=PathBoundsX()-Diff:EndIf
+    If PathBoundsY()-Diff<*Gerber\Min\Y:*Gerber\Min\Y=PathBoundsY()-Diff:EndIf
+    If PathBoundsWidth()+PathBoundsX()+Diff>*Gerber\Max\X:*Gerber\Max\X=PathBoundsWidth()+PathBoundsX()+Diff:EndIf
+    If PathBoundsHeight()+PathBoundsY()+Diff>*Gerber\Max\Y:*Gerber\Max\Y=PathBoundsHeight()+PathBoundsY()+Diff:EndIf
+  EndMacro
   Macro DrawGerber(MyPosition)
     If Not IsPathEmpty()
-      If PathBoundsX()<*Gerber\Min\X:*Gerber\Min\X=PathBoundsX():EndIf
-      If PathBoundsY()<*Gerber\Min\Y:*Gerber\Min\Y=PathBoundsY():EndIf
-      If PathBoundsWidth()+PathBoundsX()>*Gerber\Max\X:*Gerber\Max\X=PathBoundsWidth()+PathBoundsX():EndIf
-      If PathBoundsHeight()+PathBoundsY()>*Gerber\Max\Y:*Gerber\Max\Y=PathBoundsHeight()+PathBoundsY():EndIf
       If *Gerber\Data\Polarity=#Gerber_Polarity_Dark
         Select MapKey(*Gerber\Data\Apertures())
           Case "107";Contour
@@ -550,49 +565,45 @@ Module PureGerber
             Select *Gerber\Data\Apertures(Aperture)\Type
               Case #Gerber_AT_Circle
                 If *Gerber\Data\Apertures()\Diameter<>0
-                  AddPathCircle(MyPosition\X,MyPosition\Y,0.5**Gerber\Data\Apertures()\Diameter)
+                  AddPathCircle(MyPosition\X,MyPosition\Y,0.5**Gerber\Data\Apertures()\Diameter**Gerber\Data\ScaleFactor)
                 EndIf
               Case #Gerber_AT_Rectangle
                 If *Gerber\Data\Apertures()\X<>0
-                  AddPathBox(MyPosition\X-0.5**Gerber\Data\Apertures()\X,MyPosition\Y-0.5**Gerber\Data\Apertures()\Y,*Gerber\Data\Apertures()\X,*Gerber\Data\Apertures()\Y)
+                  AddPathBox(MyPosition\X-0.5**Gerber\Data\Apertures()\X,MyPosition\Y-0.5**Gerber\Data\Apertures()\Y,*Gerber\Data\Apertures()\X**Gerber\Data\ScaleFactor,*Gerber\Data\Apertures()\Y**Gerber\Data\ScaleFactor)
                 EndIf
             EndSelect          
           EndIf
+          CheckPath()
           StrokePath(1,#PB_Path_Default)
         Case #Gerber_FillMode_Fill
           If G36
+            CheckPath()
             FillPath()
           Else
             Select *Gerber\Data\Apertures(Aperture)\Type
               Case #Gerber_AT_Circle
                 If *Gerber\Data\Apertures()\Diameter=0
+                  CheckPath()
                   StrokePath(1,#PB_Path_Default)
                 Else
-                  If PathBoundsX()-*Gerber\Data\Apertures()\Diameter/2<*Gerber\Min\X:*Gerber\Min\X=PathBoundsX()-*Gerber\Data\Apertures()\Diameter/2:EndIf
-                  If PathBoundsY()-*Gerber\Data\Apertures()\Diameter/2<*Gerber\Min\Y:*Gerber\Min\Y=PathBoundsY()-*Gerber\Data\Apertures()\Diameter/2:EndIf
-                  If PathBoundsWidth()+PathBoundsX()+*Gerber\Data\Apertures()\Diameter/2>*Gerber\Max\X:*Gerber\Max\X=PathBoundsWidth()+PathBoundsX()+*Gerber\Data\Apertures()\Diameter/2:EndIf
-                  If PathBoundsHeight()+PathBoundsY()+*Gerber\Data\Apertures()\Diameter/2>*Gerber\Max\Y:*Gerber\Max\Y=PathBoundsHeight()+PathBoundsY()+*Gerber\Data\Apertures()\Diameter/2:EndIf
-                  StrokePath(*Gerber\Data\Apertures()\Diameter,#PB_Path_Default|#PB_Path_RoundEnd)
+                  CheckPath(0.5**Gerber\Data\Apertures()\Diameter**Gerber\Data\ScaleFactor)
+                  StrokePath(*Gerber\Data\Apertures()\Diameter**Gerber\Data\ScaleFactor,#PB_Path_Default|#PB_Path_RoundEnd|#PB_Path_RoundCorner)
                 EndIf
               Case #Gerber_AT_Rectangle
                 If *Gerber\Data\Apertures()\X=0
+                  CheckPath()
                   StrokePath(1,#PB_Path_Default)
                 Else
-                  If PathBoundsX()-*Gerber\Data\Apertures()\X/2<*Gerber\Min\X:*Gerber\Min\X=PathBoundsX()-*Gerber\Data\Apertures()\X/2:EndIf
-                  If PathBoundsY()-*Gerber\Data\Apertures()\X/2<*Gerber\Min\Y:*Gerber\Min\Y=PathBoundsY()-*Gerber\Data\Apertures()\X/2:EndIf
-                  If PathBoundsWidth()+PathBoundsX()+*Gerber\Data\Apertures()\X/2>*Gerber\Max\X:*Gerber\Max\X=PathBoundsWidth()+PathBoundsX()+*Gerber\Data\Apertures()\X/2:EndIf
-                  If PathBoundsHeight()+PathBoundsY()+*Gerber\Data\Apertures()\X/2>*Gerber\Max\Y:*Gerber\Max\Y=PathBoundsHeight()+PathBoundsY()+*Gerber\Data\Apertures()\X/2:EndIf
-                  StrokePath(*Gerber\Data\Apertures()\X,#PB_Path_Default|#PB_Path_SquareEnd)
+                  CheckPath(0.5**Gerber\Data\Apertures()\X**Gerber\Data\ScaleFactor)
+                  StrokePath(*Gerber\Data\Apertures()\X**Gerber\Data\ScaleFactor,#PB_Path_Default|#PB_Path_SquareEnd)
                 EndIf
               Default
                 If *Gerber\Data\Apertures()\X=0
+                  CheckPath()
                   StrokePath(1,#PB_Path_Default)
                 Else
-                  If PathBoundsX()-*Gerber\Data\Apertures()\X/2<*Gerber\Min\X:*Gerber\Min\X=PathBoundsX()-*Gerber\Data\Apertures()\X/2:EndIf
-                  If PathBoundsY()-*Gerber\Data\Apertures()\X/2<*Gerber\Min\Y:*Gerber\Min\Y=PathBoundsY()-*Gerber\Data\Apertures()\X/2:EndIf
-                  If PathBoundsWidth()+PathBoundsX()+*Gerber\Data\Apertures()\X/2>*Gerber\Max\X:*Gerber\Max\X=PathBoundsWidth()+PathBoundsX()+*Gerber\Data\Apertures()\X/2:EndIf
-                  If PathBoundsHeight()+PathBoundsY()+*Gerber\Data\Apertures()\X/2>*Gerber\Max\Y:*Gerber\Max\Y=PathBoundsHeight()+PathBoundsY()+*Gerber\Data\Apertures()\X/2:EndIf
-                  StrokePath(*Gerber\Data\Apertures()\X,#PB_Path_Default)
+                  CheckPath(0.5**Gerber\Data\Apertures()\X**Gerber\Data\ScaleFactor)
+                  StrokePath(*Gerber\Data\Apertures()\X**Gerber\Data\ScaleFactor,#PB_Path_Default)
                 EndIf
             EndSelect
           EndIf
@@ -603,8 +614,8 @@ Module PureGerber
   Macro CalculatePosition(DataSet)
     Len=Pow(Pow(DataSet\X,2)+Pow(DataSet\Y,2),0.5)
     Rot=ATan2(DataSet\X,DataSet\Y)+*AMacro\Primitives()\Radian
-    DataSet\X=*Position\X+Len*Cos(Rot)
-    DataSet\Y=*Position\Y+Len*Sin(Rot)
+    DataSet\X=*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor
+    DataSet\Y=*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor
   EndMacro
   Macro AddError(MyError)
     LastElement(*Gerber\Log\Errors())
@@ -612,17 +623,14 @@ Module PureGerber
     *Gerber\Log\Errors()=MyError
   EndMacro
   Macro IsGerber_(Object)
-    Bool(*Gerber And GerberList(Str(*Gerber)))
-    ;Bool(*Gerber And MemorySize(*Gerber)=SizeOf(Gerber) And PeekQ(*Gerber)=#Gerber_MagicNumber)
+    Bool(Object And GerberList(Str(Object)))
+    ;Bool(Object And GerberList(Str(Object)) And SizeOf(Object)=SizeOf(Gerber) And Object\MagicNumber=#Gerber_MagicNumber)
   EndMacro
   Procedure IsGerber(*Gerber.Gerber)
     ProcedureReturn IsGerber_(*Gerber)
   EndProcedure
   Procedure IsGerberValid(*Gerber.Gerber)
-    If IsGerber_(*Gerber) And ListSize(*Gerber\Log\Errors())=0
-      ProcedureReturn #True
-    EndIf
-    ProcedureReturn #False
+    ProcedureReturn Bool(IsGerber_(*Gerber) And ListSize(*Gerber\Log\Errors())=0)
   EndProcedure
   Procedure FreeGerber(*Gerber.Gerber)
     If IsGerber_(*Gerber)
@@ -633,9 +641,6 @@ Module PureGerber
       ProcedureReturn #False
     EndIf
   EndProcedure
-  Procedure SaveGBRData(*Gerber.Gerber)
-    
-  EndProcedure
   Procedure SetGerberCallback(*FunctionAddress,Timeout);Use 0 to disable callback, timeout is the minimum wait time between calls (in ms)
     *Callback=*FunctionAddress
     If Timeout>0
@@ -645,23 +650,28 @@ Module PureGerber
     EndIf
   EndProcedure
   Procedure SplitL(String.s, Array StringList.s(1))
-    Protected S.String,*S.Integer=@S,p.l,Pos.l,Tick.q=ElapsedMilliseconds()+1000
+    Protected S.String,*S.Integer=@S,p.l,Pos.l
+    String+"*"
     *S\i=@String
     Pos=ArraySize(StringList())+1
     ReDim StringList(Pos+CountString(String,"*"))
+    If StringList(Pos-1)=""
+      Pos-1
+    EndIf
     Repeat
       p=FindString(S\s,"*")
       If p
         StringList(Pos) = PeekS(*S\i, p-1)
-        Pos+1
+        If StringList(Pos)<>""
+          Pos+1
+        EndIf
       EndIf
       *S\i + p << #PB_Compiler_Unicode;1 -> *2
-                                      ;       If ElapsedMilliseconds()>Tick
-                                      ;         Tick=ElapsedMilliseconds()+1000
-                                      ;         Debug Len(S\s)
-                                      ;       EndIf
     Until p = 0
     *S\i = 0
+    If Pos > 0
+      ReDim StringList(Pos-1)
+    EndIf
   EndProcedure
   Procedure Split(String.s, Array StringArray.s(1))
     Protected S.String,*S.Integer=@S,asize.l=CountString(String,"%"),i.l,p.l
@@ -687,40 +697,37 @@ Module PureGerber
         Select \Primitives()\Type
             ;Case #Gerber_MT_Comment
             ;{ Comments already sorted out
-            ;...
             ;}
           Case #Gerber_MT_Circle
             ;{ 1, Circle
             Len=Pow(Pow(\Primitives()\CenterX,2)+Pow(\Primitives()\CenterY,2),0.5)
             Rot=ATan2(\Primitives()\CenterX,\Primitives()\CenterY)
-            NX=*Position\X+Len*Cos(\Primitives()\Radian+Rot)
-            NY=*Position\Y+Len*Sin(\Primitives()\Radian+Rot)
-            AddPathCircle(NX,NY,0.5*\Primitives()\Diameter,0,360,#PB_Path_Default)
+            AddPathCircle(*Position\X+Len*Cos(\Primitives()\Radian+Rot)**Gerber\Data\ScaleFactor,*Position\Y+Len*Sin(\Primitives()\Radian+Rot)**Gerber\Data\ScaleFactor,0.5*\Primitives()\Diameter**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
             ;}
           Case #Gerber_MT_LineVector,#Gerber_MT_VectorLine
             ;{ 2 (deprecated in 2015), 20, Line with start point, vector and thickness
             DrawGerber(*Position)
             Len=Pow(Pow(\Primitives()\StartX,2)+Pow(\Primitives()\StartY,2),0.5)
             Rot=ATan2(\Primitives()\StartX,\Primitives()\StartY)+\Primitives()\Radian
-            MovePathCursor(*Position\X+Len*Cos(Rot),*Position\Y+Len*Sin(Rot),#PB_Path_Default)
+            MovePathCursor(*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor,*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Default)
             Len=Pow(Pow(\Primitives()\EndX,2)+Pow(\Primitives()\EndY,2),0.5)
             Rot=ATan2(\Primitives()\EndX,\Primitives()\EndY)+\Primitives()\Radian
-            AddPathLine(*Position\X+Len*Cos(Rot),*Position\Y+Len*Sin(Rot),#PB_Path_Default)
+            AddPathLine(*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor,*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Default)
             If *Gerber\FillMode=#Gerber_FillMode_Fill
-              StrokePath(\Primitives()\Width)
+              StrokePath(\Primitives()\Width**Gerber\Data\ScaleFactor)
             EndIf
             ;}
           Case #Gerber_MT_Outline
             ;{ 4, Irregular polygon with definition of X,Y-plots
             Len=Pow(Pow(\Primitives()\StartX,2)+Pow(\Primitives()\StartY,2),0.5)
             Rot=ATan2(\Primitives()\StartX,\Primitives()\StartY)+\Primitives()\Radian
-            MovePathCursor(*Position\X+Len*Cos(Rot),*Position\Y+Len*Sin(Rot),#PB_Path_Default)
+            MovePathCursor(*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor,*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Default)
             ResetList(\Primitives()\Vertices())
             For Count=1 To \Primitives()\VertexCount
               NextElement(\Primitives()\Vertices())
               Len=Pow(Pow(\Primitives()\Vertices()\X,2)+Pow(\Primitives()\Vertices()\Y,2),0.5)
               Rot=ATan2(\Primitives()\Vertices()\X,\Primitives()\Vertices()\Y)+\Primitives()\Radian
-              AddPathLine(*Position\X+Len*Cos(Rot),*Position\Y+Len*Sin(Rot),#PB_Path_Default)
+              AddPathLine(*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor,*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Default)
             Next
             ;}
           Case #Gerber_MT_Polygon
@@ -728,15 +735,12 @@ Module PureGerber
             Debug "Regular Polygon (needs verification)"
             Len=Pow(Pow(\Primitives()\CenterX+0.5*\Primitives()\Diameter,2)+Pow(\Primitives()\CenterY,2),0.5)
             Rot=ATan2(\Primitives()\CenterX+0.5*\Primitives()\Diameter,\Primitives()\CenterY)+\Primitives()\Radian
-            Pos1\X=*Position\X+Len*Cos(Rot)
-            Pos1\Y=*Position\Y+Len*Sin(Rot)
+            Pos1\X=*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor
+            Pos1\Y=*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor
             MovePathCursor(Pos1\X,Pos1\Y,#PB_Path_Default)
             For Count=2 To \Primitives()\VertexCount
-              Len=Pow(Pow(\Primitives()\CenterX+0.5*\Primitives()\Diameter,2)+Pow(\Primitives()\CenterY,2),0.5)
-              Rot=ATan2(\Primitives()\CenterX+0.5*\Primitives()\Diameter,\Primitives()\CenterY)+\Primitives()\Radian
-              Pos2\X=*Position\X+Len*Cos(Rot)
-              Pos2\Y=*Position\Y+Len*Sin(Rot)
-              AddPathLine(Pos2\X,Pos2\Y,#PB_Path_Default)
+              Rot+2*#PI/\Primitives()\VertexCount
+              AddPathLine(*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor,*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Default)
             Next
             AddPathLine(Pos1\X,Pos1\Y,#PB_Path_Default)
             ;}
@@ -760,7 +764,7 @@ Module PureGerber
             CalculatePosition(Pos1)
             CalculatePosition(Pos2)
             CalculatePosition(Pos3)
-            CalculatePosition(Pos1)
+            CalculatePosition(Pos4)
             MovePathCursor(Pos1\X,Pos1\Y,#PB_Path_Default)
             AddPathLine(Pos2\X,Pos2\Y,#PB_Path_Default)
             AddPathLine(Pos3\X,Pos3\Y,#PB_Path_Default)
@@ -805,39 +809,38 @@ Module PureGerber
       Select \Type
         Case #Gerber_AT_Circle
           Rad=0.5*\Diameter
-          AddPathCircle(*Position\X,*Position\Y,Rad,0,360,#PB_Path_Default)
+          AddPathCircle(*Position\X**Gerber\Data\ScaleFactor,*Position\Y**Gerber\Data\ScaleFactor,Rad,0,360,#PB_Path_Default)
           If \InnerX>0
-            AddPathCircle(*Position\X,*Position\Y,Rad,0,360,#PB_Path_Default)
+            AddPathCircle(*Position\X**Gerber\Data\ScaleFactor,*Position\Y**Gerber\Data\ScaleFactor,Rad,0,360,#PB_Path_Default)
           EndIf
         Case #Gerber_AT_Rectangle
-          AddPathBox(-0.5*\X,-0.5*\Y,\X,\Y,#PB_Path_Relative)
+          AddPathBox(-0.5*\X**Gerber\Data\ScaleFactor,-0.5*\Y**Gerber\Data\ScaleFactor,\X**Gerber\Data\ScaleFactor,\Y**Gerber\Data\ScaleFactor,#PB_Path_Relative)
         Case #Gerber_AT_Obround
           If \X>\Y
-            AddPathCircle(-0.5*(\X-\Y),0,0.5*\Y,90,270,#PB_Path_Relative)
-            AddPathLine(\X-\Y,0,#PB_Path_Relative)
-            AddPathCircle(0,0.5*\Y,0.5*\Y,270,90,#PB_Path_Relative)
-            AddPathLine(\Y-\X,0,#PB_Path_Relative)
+            AddPathCircle(-0.5*(\X-\Y)**Gerber\Data\ScaleFactor,0,0.5*\Y**Gerber\Data\ScaleFactor,90,270,#PB_Path_Relative)
+            AddPathLine((\X-\Y)**Gerber\Data\ScaleFactor,0,#PB_Path_Relative)
+            AddPathCircle(0,0.5*\Y**Gerber\Data\ScaleFactor,0.5*\Y**Gerber\Data\ScaleFactor,270,90,#PB_Path_Relative)
+            AddPathLine((\Y-\X)**Gerber\Data\ScaleFactor,0,#PB_Path_Relative)
           Else
-            AddPathCircle(0,-0.5*(\Y-\X),0.5*\X,180,0,#PB_Path_Relative)
-            AddPathLine(0,\Y-\X,#PB_Path_Relative)
-            AddPathCircle(-0.5*\X,0,0.5*\X,0,180,#PB_Path_Relative)
-            AddPathLine(0,\X-\Y,#PB_Path_Relative)
+            AddPathCircle(0,-0.5*(\Y-\X)**Gerber\Data\ScaleFactor,0.5*\X**Gerber\Data\ScaleFactor,180,0,#PB_Path_Relative)
+            AddPathLine(0,(\Y-\X)**Gerber\Data\ScaleFactor,#PB_Path_Relative)
+            AddPathCircle(-0.5*\X**Gerber\Data\ScaleFactor,0,0.5*\X**Gerber\Data\ScaleFactor,0,180,#PB_Path_Relative)
+            AddPathLine(0,(\X-\Y)**Gerber\Data\ScaleFactor,#PB_Path_Relative)
           EndIf
-          MovePathCursor(*Position\X,*Position\Y,#PB_Path_Default)
           If \InnerX
             MovePathCursor(*Position\X,*Position\Y,#PB_Path_Default)
-            AddPathCircle(*Position\X,*Position\Y,\InnerX,0,360,#PB_Path_Default)
+            AddPathCircle(*Position\X**Gerber\Data\ScaleFactor,*Position\Y**Gerber\Data\ScaleFactor,\InnerX**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
           EndIf
         Case #Gerber_AT_Polygon
-          MovePathCursor(0.5*\Diameter*Cos(-1*\Radian),0.5*\Diameter*Sin(-1*\Radian),#PB_Path_Relative)
+          MovePathCursor(0.5*\Diameter*Cos(-1*\Radian)**Gerber\Data\ScaleFactor,0.5*\Diameter*Sin(-1*\Radian)**Gerber\Data\ScaleFactor,#PB_Path_Relative)
           Part=360/\Vertex
           For Counter=0 To \Vertex
-            *Position\X+0.5*\Diameter*Cos(Radian(-1*\Rotation+Part*Counter))
-            *Position\Y+0.5*\Diameter*Sin(Radian(-1*\Rotation+Part*Counter))
+            *Position\X+0.5*\Diameter*Cos(Radian(-1*\Rotation+Part*Counter))**Gerber\Data\ScaleFactor
+            *Position\Y+0.5*\Diameter*Sin(Radian(-1*\Rotation+Part*Counter))**Gerber\Data\ScaleFactor
             AddPathLine(*Position\X,*Position\Y)
           Next
           If \InnerX>0
-            AddPathCircle(*Position\X,*Position\Y,\InnerX,0,360,#PB_Path_Default)
+            AddPathCircle(*Position\X,*Position\Y,\InnerX**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
           EndIf
         Case #Gerber_AT_ApertureMacro
           DrawPrimitives(*AMacro,*Position,*Gerber,CacheList())
@@ -861,6 +864,7 @@ Module PureGerber
     With *Gerber\Data
       Max=ArraySize(Path())
       For Pos=0 To Max
+        Debug Path(Pos)
         If MatchRegularExpression(#Gerber_Command_FollowUp,Path(Pos))
           Path(Pos)=Path(Pos)+"D0"+Str(LastD)
         EndIf
@@ -877,15 +881,15 @@ Module PureGerber
                 Case #Gerber_AT_Circle
                   If \Apertures()\Diameter<>0
                     Rad=0.5*\Apertures()\Diameter
-                    AddPathCircle(OldPosition\X,OldPosition\Y,Rad)
-                    AddPathCircle(Position\X,Position\Y,Rad)
+                    AddPathCircle(OldPosition\X,OldPosition\Y,Rad**Gerber\Data\ScaleFactor)
+                    AddPathCircle(Position\X,Position\Y,Rad**Gerber\Data\ScaleFactor)
                   EndIf
                 Case #Gerber_AT_Rectangle
                   If \Apertures()\X<>0
                     SRI=0.5*\Apertures()\X
                     SRJ=0.5*\Apertures()\Y
-                    AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X,\Apertures()\Y)
-                    AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X,\Apertures()\Y)
+                    AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor)
+                    AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor)
                   EndIf
               EndSelect          
               MovePathCursor(Position\X,Position\Y)
@@ -921,13 +925,13 @@ Module PureGerber
                   Select \Apertures(Aperture)\Type
                     Case #Gerber_AT_Circle
                       Rad=0.5*\Apertures()\Diameter
-                      AddPathCircle(OldPosition\X,OldPosition\Y,Rad,0,360,#PB_Path_Default)
-                      AddPathCircle(Position\X,Position\Y,Rad,0,360,#PB_Path_Default)
+                      AddPathCircle(OldPosition\X,OldPosition\Y,Rad**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
+                      AddPathCircle(Position\X,Position\Y,Rad**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
                     Case #Gerber_AT_Rectangle
                       SRI=0.5*\Apertures()\X
                       SRJ=0.5*\Apertures()\Y
-                      AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X,\Apertures()\Y,#PB_Path_Default)
-                      AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X,\Apertures()\Y,#PB_Path_Default)
+                      AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
+                      AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
                   EndSelect
                   MovePathCursor(OldPosition\X,OldPosition\Y,#PB_Path_Default)
                 EndIf
@@ -950,7 +954,7 @@ Module PureGerber
           GMode=#Gerber_GMode_G01
           ;}
         ElseIf ExamineRegularExpression(#Gerber_Command_G23,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_G23)
-          ;{ G02/G03: Circle mode (clockwise/counterclockwise)  -----------------> Größenberechnung an Strichbreite anpassen!
+          ;{ G02/G03: Circle mode (clockwise/counterclockwise)
           GMode=Val(Mid(Path(Pos),3,1))
           NewPosition\X=Position\X
           NewPosition\Y=Position\Y
@@ -1033,6 +1037,8 @@ Module PureGerber
           Temp$=RegularExpressionGroup(#Gerber_Command_SelectAperture,3)
           If Val(Temp$)>9 And FindMapElement(\Apertures(),Temp$)
             Aperture=Temp$
+            *Gerber\Data\ScaleFactor=1.0
+            *Gerber\Data\Rotation=0.0
             If \Apertures(Temp$)\Type=#Gerber_AT_ApertureBlock
               AddError("Uses Aperture Blocks. This feature is not completed yet!")
             EndIf
@@ -1054,6 +1060,8 @@ Module PureGerber
           DrawGerber(Position)
           G36=#True
           Aperture=""
+          *Gerber\Data\ScaleFactor=1.0
+          *Gerber\Data\Rotation=0.0
           ;}
         ElseIf Path(Pos)="G37"
           ;{ G37: End Contour
@@ -1065,6 +1073,15 @@ Module PureGerber
           ;ClosePath()
           DrawGerber(Position)
           G36=#False
+          ;}
+        ElseIf ExamineRegularExpression(#Gerber_Command_LS,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_LS)
+          ;{ LS: Set scale factor (reset after every G54!)
+          DrawGerber(Position)
+          *Gerber\Data\ScaleFactor=ValF(RegularExpressionGroup(#Gerber_Command_LS,1))
+          ;}
+        ElseIf ExamineRegularExpression(#Gerber_Command_LR,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_LR)
+          ;{ LR: Set rotation (reset after every G54!)
+          *Gerber\Data\Rotation=ValF(RegularExpressionGroup(#Gerber_Command_LR,1))
           ;}
         ElseIf ExamineRegularExpression(#Gerber_Command_LP,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_LP)
           ;{ LPx: Set to Dark/Clear Mode
@@ -1081,11 +1098,20 @@ Module PureGerber
           ;{ End of plotting sequence
           Break
           ;}
-        ElseIf Path(Pos)="G75" Or Path(Pos)="G74" Or Left(Path(Pos),3)="G04" Or Path(Pos)="G01D01"
-          ;  G75: Switch To linear plotting (obsolete)
-          ;  G74: Switch To quadrant mode (obsolete)
-          ;  G04: Ignore, it's a comment
-          ;  G01D01: Ignored, whatever it is supposed to do...
+        ElseIf ExamineRegularExpression(#Gerber_Command_Single,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_Single)
+          Select RegularExpressionGroup(#Gerber_Command_Single,1)
+            Case "01","02","03"
+              GMode=Val(RegularExpressionGroup(#Gerber_Command_Single,1))
+            Case "75","74","04"
+              ;  G75: Switch To linear plotting (obsolete)
+              ;  G74: Switch To quadrant mode (obsolete)
+              ;  G04: Ignore, it's a comment
+            Default
+              AddError("Error or ignored command: "+Path(Pos))
+          EndSelect
+        ElseIf Path(Pos)="G01D01"
+          ;  G01D01: Whatever it is supposed to do...
+          GMode=1
         ElseIf Path(Pos)<>""
           ;{ Now, that's an error or some unsupported command
           AddError("Error or ignored command: "+Path(Pos))
@@ -1110,7 +1136,6 @@ Module PureGerber
   
   ;{ Interactive GerberGadget
   ;{ Mousewheel fix for Windows < 10, adapted from original code by mk-soft: http://forums.purebasic.com/english/viewtopic.php?t=70074
-  
   CompilerIf #PB_Compiler_OS=#PB_OS_Windows
     
     Enumeration #PB_EventType_FirstCustomValue
@@ -1167,40 +1192,28 @@ Module PureGerber
   
   Procedure EventHandler()
     Protected GSize.Pos,Size.Pos,Gadget.i=EventGadget(),*Data.GerberGadget=GetGadgetData(Gadget),*Gerber.Gerber,Draw.a
-    Protected Coord.Pos,CZero.Pos
     If *Data
       GSize\X=GadgetWidth(Gadget)
       GSize\Y=GadgetHeight(Gadget)
       *Gerber=*Data\Gerber
       If IsGerber_(*Gerber)
         With *Gerber
-          If *Data\LeftLock And (GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)<>*Data\LastX Or GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)<>*Data\LastY)
-            *Data\X=*Data\X-*Data\LastX+GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-            *Data\Y=*Data\Y-*Data\LastY+GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-            *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-            *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-            ;If ElapsedMilliseconds()>*Data\NextDraw
-            Draw=#True
-            ;*Data\NextDraw=ElapsedMilliseconds()+25
-            ;EndIf
-          EndIf
           Select EventType()
             Case #PB_EventType_Resize
               Draw=#True
               CompilerIf #PB_Compiler_OS=#PB_OS_Windows
               Case #My_EventType_MouseWheelDown,#My_EventType_MouseWheelUp
-                *Data\Zoom=*Data\Zoom+0.1**Data\Zoom*EventData()
+                *Data\Zoom=*Data\Zoom+(1+2*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Control))**Data\ZoomFactor**Data\Zoom*EventData()
                 Draw=#True
               CompilerEndIf
             Case #PB_EventType_MouseWheel
               *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
               *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-              CZero\X=(*Data\X+*Data\LastX)**Data\Zoom
-              CZero\Y=(*Data\Y+*Data\LastY)**Data\Zoom
-              *Data\Zoom=*Data\Zoom+0.1**Data\Zoom*GetGadgetAttribute(Gadget,#PB_Canvas_WheelDelta)
-              *Data\X=CZero\X/*Data\Zoom-*Data\LastX
-              *Data\Y=CZero\Y/*Data\Zoom-*Data\LastY
-              Debug Str(*Data\X)+" - "+Str(*Data\Y)
+              *Data\X=(*Data\LastX-*Data\X)/*Data\Zoom
+              *Data\Y=(*Data\LastY-*Data\Y)/*Data\Zoom
+              *Data\Zoom=*Data\Zoom+(1+2*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Control))**Data\ZoomFactor**Data\Zoom*GetGadgetAttribute(Gadget,#PB_Canvas_WheelDelta)
+              *Data\X=-1*(*Data\X**Data\Zoom-*Data\LastX)
+              *Data\Y=-1*(*Data\Y**Data\Zoom-*Data\LastY)
               Draw=#True
             Case #PB_EventType_LeftButtonDown
               *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
@@ -1218,25 +1231,14 @@ Module PureGerber
               SetActiveGadget(Gadget)
             Case #PB_EventType_MouseLeave
               SetActiveGadget(*Data\LastActiveGadget)
-              ;Unused code, mouse is limited into the gadget while holding left button
-              ;               If *Data\LeftLock
-              ;                 *Data\X=*Data\X-*Data\LastX+GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-              ;                 *Data\Y=*Data\Y-*Data\LastY+GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-              ;                 *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-              ;                 *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-              ;                 Draw=#True
-              ;                 *Data\LeftLock=#False
-              ;               EndIf
             Case #PB_EventType_MouseMove
-              
-              Coord\X=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-              Coord\Y=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-              Size\X=GadgetWidth(Gadget)/(\Max\X-\Min\X)
-              Size\Y=GadgetHeight(Gadget)/(\Max\Y-\Min\Y)
-              If Size\X>Size\Y:Size\X=Size\Y:EndIf
-              
-              SetWindowTitle(0,Str(CZero\X)+":"+Str(CZero\Y))
-              
+              If *Data\LeftLock
+                *Data\X=*Data\X-*Data\LastX+GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                *Data\Y=*Data\Y-*Data\LastY+GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                Draw=#True
+              EndIf
           EndSelect
           If Draw
             StartVectorDrawing(CanvasVectorOutput(Gadget))
@@ -1253,7 +1255,6 @@ Module PureGerber
               PlotFromCache(*Gerber\Cache\Skeleton(),*Gerber)
             EndIf
             StopVectorDrawing()
-            ;*Data\NextDraw=ElapsedMilliseconds()+25
             *Data\SizeX=GSize\X
             *Data\SizeY=GSize\Y
           ElseIf GSize\X<>*Data\SizeX Or GSize\Y<>*Data\SizeY
@@ -1276,7 +1277,7 @@ Module PureGerber
     EndIf
   EndProcedure
   
-  Procedure ForceDrawGerberGadget(Gadget.i)
+  Procedure RedrawGerberGadget(Gadget.i)
     PostEvent(#PB_Event_Gadget,GetProp_(UseGadgetList(0),StringField("PB_WINDOWID",1,","))-1,Gadget,#PB_EventType_Resize)
   EndProcedure
   
@@ -1288,7 +1289,7 @@ Module PureGerber
       *Data\LeftLock=0
       *Data\Zoom=1.0
       If ReDraw
-        ForceDrawGerberGadget(Gadget)
+        RedrawGerberGadget(Gadget)
       EndIf
     EndIf
   EndProcedure
@@ -1308,11 +1309,12 @@ Module PureGerber
     *Data=AllocateStructure(GerberGadget)
     *Data\Gerber=*Gerber
     *Data\Zoom=1.0
+    *Data\ZoomFactor=0.2
     *Data\X=0
     *Data\Y=0
     SetGadgetData(Gadget,*Data)
     If IsGerber_(*Gerber) And Not Flags&#Gerber_Flag_NoDrawing
-      ForceDrawGerberGadget(Gadget)
+      RedrawGerberGadget(Gadget)
     EndIf
     BindGadgetEvent(Gadget,@EventHandler())
     ProcedureReturn Gadget
@@ -1325,6 +1327,7 @@ Module PureGerber
       *Data=AllocateStructure(GerberGadget)
       *Data\Gerber=*Gerber
       *Data\Zoom=1.0
+      *Data\ZoomFactor=#Gerber_Gadget_StandardZoom
       *Data\X=0
       *Data\Y=0
       SetGadgetData(Gadget,*Data)
@@ -1596,9 +1599,9 @@ Module PureGerber
     With *Gerber
       GerberList(Str(*Gerber))=1
       \Mutex=CreateMutex()
-      \DrawScaling=0.98;1% of space on each side by default
-      \Min\X=#MAXLONG:\Min\Y=#MAXLONG
-      \Max\X=-#MAXLONG:\Max\Y=-#MAXLONG
+      \DrawScaling=#Gerber_DrawScaling
+      ;\Min\X=#MAXLONG:\Min\Y=#MAXLONG
+      ;\Max\X=-#MAXLONG:\Max\Y=-#MAXLONG
       Split(Gerber$,Split$())
       PCount=ArraySize(Split$())
       
@@ -1916,13 +1919,13 @@ Module PureGerber
             EndIf
             ;}
           ElseIf MatchRegularExpression(#Gerber_RegEx_IR,STemp$)
-            ;{ IR -> Image rotation (deprecated in December 2012, completely ignored if not 0°)
+            ;{ IR -> Image rotation (deprecated in December 2012, completely ignored if not 0°, otherwise no effect)
             If STemp$<>"IR0*"
               AddError("Deprecated image rotation-command will be ignored: "+STemp$)
             EndIf
             ;}
           ElseIf MatchRegularExpression(#Gerber_RegEx_AS,STemp$)
-            ;{ AS -> Axis selection (deprecated in December 2012, ignored if not A=X/B=Y)
+            ;{ AS -> Axis selection (deprecated in December 2012, ignored if not A=X/B=Y, otherwise no effect)
             If STemp$<>"ASAXBY*"
               AddError("Deprecated axis selection-command will be ignored: "+STemp$)
             EndIf
@@ -1940,6 +1943,11 @@ Module PureGerber
           ElseIf MatchRegularExpression(#Gerber_RegEx_OF,STemp$)
             ;{ OF -> Offset factor (deprecated in December 2012, completely ignored)
             AddError("Deprecated offset-command will be ignored: "+STemp$)
+            ;}
+          ElseIf MatchRegularExpression(#Gerber_RegEx_LS,STemp$)
+            ;{ LS -> Load scaling
+            ReDim Path(ArraySize(Path())+1)
+            Path(ArraySize(Path()))=Left(STemp$,Len(STemp$)-1)
             ;}
           Else
             ;{ Generate  renderpath or add to it...or unknown command
@@ -1959,7 +1967,7 @@ Module PureGerber
       Next
       ;}
       
-      ;{ Add omitted zeroes if "omit trailing zeroes" is active, otherwise the comma would be put into the wrong place
+      ;{ Add omitted zeroes if "omit trailing zeroes" is active, otherwise the comma would be put into the wrong place. Deprecated mode, in for compatibility
       If \Header\OmittedZeros=#Gerber_OZ_Trailing
         Max=ArraySize(Path())
         For Pos=0 To Max
@@ -1979,37 +1987,31 @@ Module PureGerber
       EndIf
       ;}
       
-      ;{ Path preprocessing (convert from incremental values to absolute values (if needed) and first part of size calculation)
-      Max=ArraySize(Path())
-      For Pos=0 To Max
-        If ExamineRegularExpression(#Gerber_RegEx_PreprocessX,Path(Pos)) And NextRegularExpressionMatch(#Gerber_RegEx_PreprocessX)
-          If \Header\CoordinateMode=#Gerber_Coord_Absolute
-            Position\X=ValD(RegularExpressionGroup(#Gerber_RegEx_PreprocessX,1))
-          Else
+      ; !!!!!!!!TESTEN!!!!!!!!
+      ;{ Path preprocessing (convert from incremental values to absolute values (if needed))
+      If *Gerber\Header\CoordinateMode=#Gerber_Coord_Incremental
+        Max=ArraySize(Path())
+        Position\X=0:Position\Y=0
+        For Pos=0 To Max
+          If ExamineRegularExpression(#Gerber_RegEx_PreprocessX,Path(Pos)) And NextRegularExpressionMatch(#Gerber_RegEx_PreprocessX)
             Position\X+ValD(RegularExpressionGroup(#Gerber_RegEx_PreprocessX,1))
+            Path(Pos)=ReplaceString(Path(Pos),RegularExpressionGroup(#Gerber_RegEx_PreprocessX,1),Str(Position\X))
           EndIf
-          If Position\X>\Max\X:\Max\X=Position\X:EndIf
-          If Position\X<\Min\X:\Min\X=Position\X:EndIf
-        EndIf
-        If ExamineRegularExpression(#Gerber_RegEx_PreprocessY,Path(Pos)) And NextRegularExpressionMatch(#Gerber_RegEx_PreprocessY)
-          If \Header\CoordinateMode=#Gerber_Coord_Absolute
-            Position\Y=ValD(RegularExpressionGroup(#Gerber_RegEx_PreprocessY,1))
-          Else
+          If ExamineRegularExpression(#Gerber_RegEx_PreprocessY,Path(Pos)) And NextRegularExpressionMatch(#Gerber_RegEx_PreprocessY)
             Position\Y+ValD(RegularExpressionGroup(#Gerber_RegEx_PreprocessY,1))
+            Path(Pos)=ReplaceString(Path(Pos),RegularExpressionGroup(#Gerber_RegEx_PreprocessY,1),Str(Position\Y))
           EndIf
-          If Position\Y>\Max\Y:\Max\Y=Position\Y:EndIf
-          If Position\Y<\Min\Y:\Min\Y=Position\Y:EndIf
-        EndIf
-        Select Path(Pos)
-          Case "M00","M01","M02";M01 maybe without effect (should maybe not stop the processing!)
-            ReDim Path(Pos)
-            Break
-        EndSelect
-        If ElapsedMilliseconds()>CallbackTick And *Callback
-          CallFunctionFast(*Callback,PCount+Pos,PCount+ArraySize(Path()));Calls the callback function (parameters: current position, total lines)
-          CallbackTick=ElapsedMilliseconds()+CallbackTimeout
-        EndIf
-      Next
+          ;           Select Path(Pos)
+          ;             Case "M00","M01","M02";M01 maybe without effect (should maybe not stop the processing!)
+          ;               ReDim Path(Pos)
+          ;               Break
+          ;           EndSelect
+          If ElapsedMilliseconds()>CallbackTick And *Callback
+            CallFunctionFast(*Callback,PCount+Pos,PCount+ArraySize(Path()));Calls the callback function (parameters: current position, total lines)
+            CallbackTick=ElapsedMilliseconds()+CallbackTimeout
+          EndIf
+        Next
+      EndIf
       ;}    
       
       ;{ Some error messages (may be enhanced in the future)
@@ -2072,6 +2074,7 @@ Module PureGerber
           FileSeek(File,0,#PB_Absolute)
           *Mem=AllocateMemory(Size,#PB_Memory_NoClear)
           ReadData(File,*Mem,Size)
+          CloseFile(File)
           *Gerber=LoadPureGerber(*Mem)
           FreeMemory(*Mem)
           If *Gerber
@@ -2113,9 +2116,9 @@ Module PureGerber
 EndModule
 
 ; IDE Options = PureBasic 6.03 LTS (Windows - x64)
-; CursorPosition = 1230
-; FirstLine = 72
-; Folding = AAABAAHAAAAAmAIogCFMAAQAcAAAAA51
+; CursorPosition = 658
+; FirstLine = 58
+; Folding = BAABAADAACAm3PegGIE-AAAmADgAAuFm+
 ; Optimizer
 ; EnableAsm
 ; EnableThread

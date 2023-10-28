@@ -60,7 +60,7 @@ Repeat
   EndSelect
 ForEver
 
-; IDE Options = PureBasic 6.03 beta 4 LTS (Windows - x64)
+; IDE Options = PureBasic 6.03 LTS (Windows - x64)
 ; CursorPosition = 11
 ; Folding = 9-
 ; Optimizer
@@ -74,5 +74,5 @@ ForEver
 ; CompileSourceDirectory
 ; Compiler = PureBasic 6.03 beta 4 LTS (Windows - x64)
 ; EnablePurifier
-; EnableCompileCount = 7
+; EnableCompileCount = 8
 ; EnableBuildCount = 0

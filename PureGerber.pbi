@@ -1,5 +1,5 @@
 ﻿;{ PureGerber Module 1.0 WIP
-;28.10.2023
+;04.01.2024
 ;by Jac de Lad
 ;
 ;READ BEFORE USAGE:
@@ -38,9 +38,10 @@
 ;}
 
 DeclareModule PureGerber
+  #Gerber_Version = "1.0 WIP 28.10.2023"  
   Enumeration Gerber_FillMode
-    #Gerber_FillMode_Skeleton    ;Draw Skeleton
     #Gerber_FillMode_Fill        ;Fill polygons
+    #Gerber_FillMode_Skeleton    ;Draw Skeleton
   EndEnumeration
   Enumeration Gerber_Unit
     #Gerber_Unit_MM
@@ -168,7 +169,7 @@ DeclareModule PureGerber
     Log.Gerber_Log
   EndStructure
   
-  Declare GerberGadget(Gadget.i,X.l,Y.l,Width.l,Height.l,*Gerber.Gerber,Flags.l=#False)
+  Declare GerberGadget(Gadget.i,X.l,Y.l,Width.l,Height.l,*Gerber.Gerber,Flags.l=#False,Window.i=#Null)
   Declare PlotGerberToCanvas(Gadget.i,*Gerber.Gerber)
   Declare PlotGerberToImage(Image.i,*Gerber.Gerber,Width.l=0,Height.l=0);Specify width/height when using #PB_Any!
   Declare CreateGerberDataFromString(Gerber$)
@@ -179,7 +180,7 @@ DeclareModule PureGerber
   Declare CatchGerber(*Memory,Size=0)
   Declare AssignGerberToGadget(Gadget.i,*Gerber.Gerber,NoDrawing.a=#False)
   Declare CreatePureGerber(*Gerber.Gerber,Flags=#Gerber_PGF_All);Returns a PureGerber object (size via MemorySize(*Memory))
-  Declare LoadPureGerber(*Memory,Size.l=0);Loads a PureGerber object, zero size means MemorySize(*Memory)
+  Declare LoadPureGerber(*Memory,Size.l=0)                      ;Loads a PureGerber object, zero size means MemorySize(*Memory)
   Declare IsGerberValid(*Gerber.Gerber)
   Declare ResetGerberGadgetData(Gadget.i,ReDraw.a=#True);Resets movement and zoom, not the Gerber data!
   Declare RedrawGerberGadget(Gadget.i)
@@ -190,45 +191,7 @@ Module PureGerber
   #NewaysMode = #False ;Draws Contours and Fiducials in different colors (according to Neways standard)
   #Gerber_MagicNumber = $208E0EABE50B1EC7;PureGerberObject
   #Gerber_Gadget_StandardZoom = 0.1      ;Standardzoomvalue on GerberGadget (±0.2*CurrentZoom)
-  #Gerber_DrawScaling = 0.98;Inital scaling factor, 1% of space on each side by default
-  Enumeration RegEx
-    #Gerber_RegEx_Header
-    #Gerber_RegEx_ExposureMode
-    #Gerber_RegEx_Macro
-    #Gerber_RegEx_Apertures
-    #Gerber_RegEx_Names
-    #Gerber_RegEx_Unit
-    #Gerber_RegEx_Attributes
-    #Gerber_RegEx_Omitter
-    #Gerber_RegEx_LS
-    #Gerber_RegEx_LM
-    #Gerber_RegEx_LR
-    #Gerber_RegEx_LP
-    #Gerber_RegEx_MI
-    #Gerber_RegEx_SF
-    #Gerber_RegEx_OF
-    #Gerber_RegEx_IR
-    #Gerber_RegEx_AS
-    #Gerber_RegEx_SR
-    #Gerber_RegEx_PreprocessX
-    #Gerber_RegEx_PreprocessY
-    #Gerber_RegEx_Pace
-    #Gerber_Command_SelectAperture
-    #Gerber_Command_D01
-    #Gerber_Command_D02
-    #Gerber_Command_D03
-    #Gerber_Command_Single
-    #Gerber_Command_G01
-    #Gerber_Command_G23
-    #Gerber_Command_G04
-    #Gerber_Command_FollowUp
-    #Gerber_Command_LS
-    #Gerber_Command_LR
-    #Gerber_Command_LM
-    #Gerber_Command_LP
-    #Gerber_Command_End
-    #Gerber_RegEx_ApertureBlock
-  EndEnumeration
+  #Gerber_DrawScaling = 0.98             ;Inital scaling factor, 1% of space on each side by default
   Enumeration OmittedZeros
     #Gerber_OZ_No
     #Gerber_OZ_Trailing
@@ -287,42 +250,42 @@ Module PureGerber
     #Gerber_Header_OK
   EndEnumeration
   ;{ Create RegEx
-  CreateRegularExpression(#Gerber_RegEx_Header,"^FS([L|T|D])([A|I])(\d?)(\d?)X(\d{2})Y(\d{2})(Z(\d{2}))?(D(\d+))?(M(\d+))?\*$")
-  CreateRegularExpression(#Gerber_RegEx_Names,"^[IL]N([^\*]+)\*$")
-  CreateRegularExpression(#Gerber_RegEx_Unit,"^MO(MM|IN)\*$")
-  CreateRegularExpression(#Gerber_RegEx_ExposureMode,"^IP(POS|NEG)\*$")
-  CreateRegularExpression(#Gerber_RegEx_Macro,"^AM([^\*]+)\*([^\%]+)$")
-  CreateRegularExpression(#Gerber_RegEx_Apertures,"^ADD(\d+)([^\,\%]+)\,?(.*)\*$")
-  CreateRegularExpression(#Gerber_RegEx_Attributes,"^TF\.(\w+)\,(.+)\*$")
-  CreateRegularExpression(#Gerber_RegEx_Omitter,"[XYIJ][-?\d]+")
-  CreateRegularExpression(#Gerber_RegEx_LS,"^LS([\d\.]+)\*$")
-  CreateRegularExpression(#Gerber_RegEx_LR,"^LR(\d+)\*$")
-  CreateRegularExpression(#Gerber_RegEx_LM,"^LP([XY]+)\*$")
-  CreateRegularExpression(#Gerber_RegEx_LP,"^LP([CD])\*$")
-  CreateRegularExpression(#Gerber_RegEx_MI,"^MI([AB][01])([B][01])?\*$")
-  CreateRegularExpression(#Gerber_RegEx_SF,"^SF([AB][\d\.]+)([B][\d\.]+)?\*$")
-  CreateRegularExpression(#Gerber_RegEx_OF,"^OF([AB]-?[\d\.]+)?(B-?[\d\.]+)?\*$")
-  CreateRegularExpression(#Gerber_RegEx_IR,"^IR[0|90|180|270]\*$")
-  CreateRegularExpression(#Gerber_RegEx_AS,"^ASAXBY|ASAYBX\*$")
-  CreateRegularExpression(#Gerber_RegEx_SR,"^SRX(\d+)Y(\d+)I(-?[\d\.]+)J(-?[\d\.]+)\*$")
-  CreateRegularExpression(#Gerber_RegEx_ApertureBlock,"^AB(D\d+)?\*$")
-  CreateRegularExpression(#Gerber_RegEx_PreprocessX,"X(-?\d+)")
-  CreateRegularExpression(#Gerber_RegEx_PreprocessY,"Y(-?\d+)")
-  CreateRegularExpression(#Gerber_RegEx_Pace,"^([XYIJDGM]-?\d+)([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?$")
-  CreateRegularExpression(#Gerber_Command_SelectAperture,"^((G54D|D)(\d+))$")
-  CreateRegularExpression(#Gerber_Command_D01,"^([XYIJ])(-?\d+)(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?D01$")
-  CreateRegularExpression(#Gerber_Command_D02,"^([XY])(-?\d+)(([XY])(-?\d+))?D02$")
-  CreateRegularExpression(#Gerber_Command_D03,"^(G55)?([XY])(-?\d+)(([XY])(-?\d+))?D03$")
-  CreateRegularExpression(#Gerber_Command_Single,"^G(\d{2})$")
-  CreateRegularExpression(#Gerber_Command_G01,"^G01([XY])(-?\d+)(([XY])(-?\d+))?(D0[12])?$")
-  CreateRegularExpression(#Gerber_Command_G23,"^G0[23]([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?(D01)?$")
-  CreateRegularExpression(#Gerber_Command_G04,"^G04.*\*$")
-  CreateRegularExpression(#Gerber_Command_FollowUp,"^([XYIJ]-?\d+){1,4}$")
-  CreateRegularExpression(#Gerber_Command_LP,"^LP([CD])$")
-  CreateRegularExpression(#Gerber_Command_LS,"^LS([\d\.]+)$")
-  CreateRegularExpression(#Gerber_Command_LR,"^LR(\d+)$")
-  CreateRegularExpression(#Gerber_Command_LM,"^LM([XY]+)$")
-  CreateRegularExpression(#Gerber_Command_End,"^M0[012]$")
+  Global Gerber_RegEx_Header=CreateRegularExpression(#PB_Any,"^FS([L|T|D])([A|I])(\d?)(\d?)X(\d{2})Y(\d{2})(Z(\d{2}))?(D(\d+))?(M(\d+))?\*$")
+  Global Gerber_RegEx_Names=CreateRegularExpression(#PB_Any,"^[IL]N([^\*]+)\*$")
+  Global Gerber_RegEx_Unit=CreateRegularExpression(#PB_Any,"^MO(MM|IN)\*$")
+  Global Gerber_RegEx_ExposureMode=CreateRegularExpression(#PB_Any,"^IP(POS|NEG)\*$")
+  Global Gerber_RegEx_Macro=CreateRegularExpression(#PB_Any,"^AM([^\*]+)\*([^\%]+)$")
+  Global Gerber_RegEx_Apertures=CreateRegularExpression(#PB_Any,"^ADD(\d+)([^\,\%]+)\,?(.*)\*$")
+  Global Gerber_RegEx_Attributes=CreateRegularExpression(#PB_Any,"^TF\.(\w+)\,(.+)\*$")
+  Global Gerber_RegEx_Omitter=CreateRegularExpression(#PB_Any,"[XYIJ][-?\d]+")
+  Global Gerber_RegEx_LS=CreateRegularExpression(#PB_Any,"^LS([\d\.]+)\*$")
+  Global Gerber_RegEx_LR=CreateRegularExpression(#PB_Any,"^LR(\d+)\*$")
+  Global Gerber_RegEx_LM=CreateRegularExpression(#PB_Any,"^LP([XY]+)\*$")
+  Global Gerber_RegEx_LP=CreateRegularExpression(#PB_Any,"^LP([CD])\*$")
+  Global Gerber_RegEx_MI=CreateRegularExpression(#PB_Any,"^MI([AB][01])([B][01])?\*$")
+  Global Gerber_RegEx_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?\*$")
+  Global Gerber_RegEx_OF=CreateRegularExpression(#PB_Any,"^OF([AB]-?[\d\.]+)?(B-?[\d\.]+)?\*$")
+  Global Gerber_RegEx_IR=CreateRegularExpression(#PB_Any,"^IR[0|90|180|270]\*$")
+  Global Gerber_RegEx_AS=CreateRegularExpression(#PB_Any,"^ASAXBY|ASAYBX\*$")
+  Global Gerber_RegEx_SR=CreateRegularExpression(#PB_Any,"^SRX(\d+)Y(\d+)I(-?[\d\.]+)J(-?[\d\.]+)\*$")
+  Global Gerber_RegEx_ApertureBlock=CreateRegularExpression(#PB_Any,"^AB(D\d+)?\*$")
+  Global Gerber_RegEx_PreprocessX=CreateRegularExpression(#PB_Any,"X(-?\d+)")
+  Global Gerber_RegEx_PreprocessY=CreateRegularExpression(#PB_Any,"Y(-?\d+)")
+  Global Gerber_RegEx_Pace=CreateRegularExpression(#PB_Any,"^([XYIJDGM]-?\d+)([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?$")
+  Global Gerber_Command_SelectAperture=CreateRegularExpression(#PB_Any,"^((G54D|D)(\d+))$")
+  Global Gerber_Command_D01=CreateRegularExpression(#PB_Any,"^([XYIJ])(-?\d+)(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?D01$")
+  Global Gerber_Command_D02=CreateRegularExpression(#PB_Any,"^([XY])(-?\d+)(([XY])(-?\d+))?D02$")
+  Global Gerber_Command_D03=CreateRegularExpression(#PB_Any,"^(G55)?([XY])(-?\d+)(([XY])(-?\d+))?D03$")
+  Global Gerber_Command_Single=CreateRegularExpression(#PB_Any,"^G(\d{2})$")
+  Global Gerber_Command_G01=CreateRegularExpression(#PB_Any,"^G01([XY])(-?\d+)(([XY])(-?\d+))?(D0[12])?$")
+  Global Gerber_Command_G23=CreateRegularExpression(#PB_Any,"^G0[23]([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?(D01)?$")
+  Global Gerber_Command_G04=CreateRegularExpression(#PB_Any,"^G04.*\*$")
+  Global Gerber_Command_FollowUp=CreateRegularExpression(#PB_Any,"^([XYIJ]-?\d+){1,4}$")
+  Global Gerber_Command_LP=CreateRegularExpression(#PB_Any,"^LP([CD])$")
+  Global Gerber_Command_LS=CreateRegularExpression(#PB_Any,"^LS([\d\.]+)$")
+  Global Gerber_Command_LR=CreateRegularExpression(#PB_Any,"^LR(\d+)$")
+  Global Gerber_Command_LM=CreateRegularExpression(#PB_Any,"^LM([XY]+)$")
+  Global Gerber_Command_End=CreateRegularExpression(#PB_Any,"^M0[012]$")
   ;}
   Enumeration PaceID
     #Gerber_PID_Invalid
@@ -355,6 +318,7 @@ Module PureGerber
     SizeX.l
     SizeY.l
     UserData.i
+    Window.i
   EndStructure
   
   UseLZMAPacker()
@@ -551,7 +515,7 @@ Module PureGerber
         Select MapKey(*Gerber\Data\Apertures())
           Case "107";Contour
             VectorSourceColor(#Gerber_VSC_Contour);C=#Red|$FF000000
-          Case "178";FID
+          Case "178"                              ;FID
             VectorSourceColor(#Gerber_VSC_Fiducial);C=#Blue|$FF000000
           Default
             VectorSourceColor(#Gerber_VSC_Foreground)
@@ -864,14 +828,13 @@ Module PureGerber
     With *Gerber\Data
       Max=ArraySize(Path())
       For Pos=0 To Max
-        Debug Path(Pos)
-        If MatchRegularExpression(#Gerber_Command_FollowUp,Path(Pos))
+        If MatchRegularExpression(Gerber_Command_FollowUp,Path(Pos))
           Path(Pos)=Path(Pos)+"D0"+Str(LastD)
         EndIf
         
-        If ExamineRegularExpression(#Gerber_Command_D01,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_D01)
+        If ExamineRegularExpression(Gerber_Command_D01,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_D01)
           ;{ D01: LINE
-          Movement(#Gerber_Command_D01)
+          Movement(Gerber_Command_D01)
           AddPathLine(Position\X,Position\Y,#PB_Path_Default)
           GMode=#Gerber_GMode_G01
           LastD=1
@@ -896,15 +859,15 @@ Module PureGerber
             EndIf
           EndIf
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_D02,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_D02)
+        ElseIf ExamineRegularExpression(Gerber_Command_D02,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_D02)
           ;{ D02: MOVE
-          Movement(#Gerber_Command_D02)
+          Movement(Gerber_Command_D02)
           MovePathCursor(Position\X,Position\Y,#PB_Path_Default)
           LastD=2
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_D03,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_D03)
+        ElseIf ExamineRegularExpression(Gerber_Command_D03,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_D03)
           ;{ D03: FLASH
-          Movement(#Gerber_Command_D03)
+          Movement(Gerber_Command_D03)
           ;MovePathCursor(Position\X,Position\Y,#PB_Path_Default)
           DrawGerber(Position)
           If Aperture<>""
@@ -915,10 +878,10 @@ Module PureGerber
           DrawGerber(Position)
           G36=#False
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_G01,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_G01)
+        ElseIf ExamineRegularExpression(Gerber_Command_G01,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_G01)
           ;{ G01: Linear-Plot-Mode
-          Movement(#Gerber_Command_G01)
-          Select RegularExpressionGroup(#Gerber_Command_G01,CountRegularExpressionGroups(#Gerber_Command_G01))
+          Movement(Gerber_Command_G01)
+          Select RegularExpressionGroup(Gerber_Command_G01,CountRegularExpressionGroups(Gerber_Command_G01))
             Case "D01"
               If *Gerber\FillMode=#Gerber_FillMode_Skeleton
                 If Not G36
@@ -953,15 +916,15 @@ Module PureGerber
           EndSelect
           GMode=#Gerber_GMode_G01
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_G23,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_G23)
+        ElseIf ExamineRegularExpression(Gerber_Command_G23,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_G23)
           ;{ G02/G03: Circle mode (clockwise/counterclockwise)
           GMode=Val(Mid(Path(Pos),3,1))
           NewPosition\X=Position\X
           NewPosition\Y=Position\Y
           Center\X=Position\X
           Center\Y=Position\Y
-          For Counter=1 To CountRegularExpressionGroups(#Gerber_Command_G23)
-            Temp$=RegularExpressionGroup(#Gerber_Command_G23,Counter)
+          For Counter=1 To CountRegularExpressionGroups(Gerber_Command_G23)
+            Temp$=RegularExpressionGroup(Gerber_Command_G23,Counter)
             Select Left(Temp$,1)
               Case "X"
                 If *Gerber\Header\CoordinateMode=#Gerber_Coord_Absolute
@@ -1029,12 +992,12 @@ Module PureGerber
           EndIf
           LastD=1
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_SelectAperture,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_SelectAperture)
+        ElseIf ExamineRegularExpression(Gerber_Command_SelectAperture,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_SelectAperture)
           ;{ G54: Set aperture
           If Aperture
             DrawGerber(Position)
           EndIf
-          Temp$=RegularExpressionGroup(#Gerber_Command_SelectAperture,3)
+          Temp$=RegularExpressionGroup(Gerber_Command_SelectAperture,3)
           If Val(Temp$)>9 And FindMapElement(\Apertures(),Temp$)
             Aperture=Temp$
             *Gerber\Data\ScaleFactor=1.0
@@ -1074,19 +1037,19 @@ Module PureGerber
           DrawGerber(Position)
           G36=#False
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_LS,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_LS)
+        ElseIf ExamineRegularExpression(Gerber_Command_LS,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_LS)
           ;{ LS: Set scale factor (reset after every G54!)
           DrawGerber(Position)
-          *Gerber\Data\ScaleFactor=ValF(RegularExpressionGroup(#Gerber_Command_LS,1))
+          *Gerber\Data\ScaleFactor=ValF(RegularExpressionGroup(Gerber_Command_LS,1))
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_LR,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_LR)
+        ElseIf ExamineRegularExpression(Gerber_Command_LR,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_LR)
           ;{ LR: Set rotation (reset after every G54!)
-          *Gerber\Data\Rotation=ValF(RegularExpressionGroup(#Gerber_Command_LR,1))
+          *Gerber\Data\Rotation=ValF(RegularExpressionGroup(Gerber_Command_LR,1))
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_LP,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_LP)
+        ElseIf ExamineRegularExpression(Gerber_Command_LP,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_LP)
           ;{ LPx: Set to Dark/Clear Mode
           DrawGerber(Position)
-          Select RegularExpressionGroup(#Gerber_Command_LP,1)
+          Select RegularExpressionGroup(Gerber_Command_LP,1)
             Case "D"
               *Gerber\Data\Polarity=#Gerber_Polarity_Dark
             Case "C"
@@ -1094,14 +1057,14 @@ Module PureGerber
           EndSelect
           MovePathCursor(Position\X,Position\Y,#PB_Path_Default)
           ;}
-        ElseIf MatchRegularExpression(#Gerber_Command_End,Path(Pos))
+        ElseIf MatchRegularExpression(Gerber_Command_End,Path(Pos))
           ;{ End of plotting sequence
           Break
           ;}
-        ElseIf ExamineRegularExpression(#Gerber_Command_Single,Path(Pos)) And NextRegularExpressionMatch(#Gerber_Command_Single)
-          Select RegularExpressionGroup(#Gerber_Command_Single,1)
+        ElseIf ExamineRegularExpression(Gerber_Command_Single,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_Single)
+          Select RegularExpressionGroup(Gerber_Command_Single,1)
             Case "01","02","03"
-              GMode=Val(RegularExpressionGroup(#Gerber_Command_Single,1))
+              GMode=Val(RegularExpressionGroup(Gerber_Command_Single,1))
             Case "75","74","04"
               ;  G75: Switch To linear plotting (obsolete)
               ;  G74: Switch To quadrant mode (obsolete)
@@ -1278,7 +1241,12 @@ Module PureGerber
   EndProcedure
   
   Procedure RedrawGerberGadget(Gadget.i)
-    PostEvent(#PB_Event_Gadget,GetProp_(UseGadgetList(0),StringField("PB_WINDOWID",1,","))-1,Gadget,#PB_EventType_Resize)
+    ;PostEvent(#PB_Event_Gadget,GetProp_(UseGadgetList(0),StringField("PB_WINDOWID",1,","))-1,Gadget,#PB_EventType_Resize)
+    Protected *Data.GerberGadget
+    If IsGadget(Gadget) And GadgetType(Gadget)=#PB_GadgetType_Canvas
+      *Data=GetGadgetData(Gadget)
+      PostEvent(#PB_Event_Gadget,*Data\Window,Gadget,#PB_EventType_Resize)
+    EndIf
   EndProcedure
   
   Procedure ResetGerberGadgetData(Gadget.i,ReDraw.a=#True);Resets movement and zoom, not the Gerber data!
@@ -1294,7 +1262,7 @@ Module PureGerber
     EndIf
   EndProcedure
   
-  Procedure GerberGadget(Gadget.i,X.l,Y.l,Width.l,Height.l,*Gerber.Gerber,Flags.l=#False)
+  Procedure GerberGadget(Gadget.i,X.l,Y.l,Width.l,Height.l,*Gerber.Gerber,Flags.l=#False,Window.i=#Null)
     Protected *Data.GerberGadget
     If Flags&#Gerber_Flag_Canvas And IsGadget(Gadget) And GadgetType(Gadget)=#PB_GadgetType_Canvas
       Width=GadgetWidth(Gadget)
@@ -1312,6 +1280,11 @@ Module PureGerber
     *Data\ZoomFactor=0.2
     *Data\X=0
     *Data\Y=0
+    If Flags&#Gerber_Flag_Canvas
+      *Data\Window=Window
+    Else
+      *Data\Window=UseGadgetList(0)
+    EndIf
     SetGadgetData(Gadget,*Data)
     If IsGerber_(*Gerber) And Not Flags&#Gerber_Flag_NoDrawing
       RedrawGerberGadget(Gadget)
@@ -1609,10 +1582,10 @@ Module PureGerber
       For PCounter=1 To PCount
         STemp$=Trim(Split$(PCounter))
         If STemp$<>""
-          If MatchRegularExpression(#Gerber_RegEx_Header,STemp$)
+          If MatchRegularExpression(Gerber_RegEx_Header,STemp$)
             ;{ FS -> Format Specification
-            If ExamineRegularExpression(#Gerber_RegEx_Header,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_Header)
-              Select RegularExpressionGroup(#Gerber_RegEx_Header,1);Ommited Zeros
+            If ExamineRegularExpression(Gerber_RegEx_Header,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Header)
+              Select RegularExpressionGroup(Gerber_RegEx_Header,1);Ommited Zeros
                 Case "L"
                   \Header\OmittedZeros=#Gerber_OZ_Leading
                 Case "T"
@@ -1620,20 +1593,20 @@ Module PureGerber
                 Case "D"
                   \Header\OmittedZeros=#Gerber_OZ_No
               EndSelect
-              Select RegularExpressionGroup(#Gerber_RegEx_Header,2);Coordinate Mode
+              Select RegularExpressionGroup(Gerber_RegEx_Header,2);Coordinate Mode
                 Case "A"
                   \Header\CoordinateMode=#Gerber_Coord_Absolute
                 Case "I"
                   \Header\CoordinateMode=#Gerber_Coord_Incremental
               EndSelect
-              \Header\SequenceNumber=Val(RegularExpressionGroup(#Gerber_RegEx_Header,3))
-              \Header\PreparatoryFunctionCode=Val(RegularExpressionGroup(#Gerber_RegEx_Header,4))
-              \Header\X=Val(Left(RegularExpressionGroup(#Gerber_RegEx_Header,5),1))
-              \Header\Digits=Val(Right(RegularExpressionGroup(#Gerber_RegEx_Header,5),1))
-              \Header\Y=Val(Left(RegularExpressionGroup(#Gerber_RegEx_Header,6),1))
-              \Header\Z=Val(Left(RegularExpressionGroup(#Gerber_RegEx_Header,7),1))
-              \Header\DraftCode=Val(RegularExpressionGroup(#Gerber_RegEx_Header,8))
-              \Header\MiscCode=Val(RegularExpressionGroup(#Gerber_RegEx_Header,9))
+              \Header\SequenceNumber=Val(RegularExpressionGroup(Gerber_RegEx_Header,3))
+              \Header\PreparatoryFunctionCode=Val(RegularExpressionGroup(Gerber_RegEx_Header,4))
+              \Header\X=Val(Left(RegularExpressionGroup(Gerber_RegEx_Header,5),1))
+              \Header\Digits=Val(Right(RegularExpressionGroup(Gerber_RegEx_Header,5),1))
+              \Header\Y=Val(Left(RegularExpressionGroup(Gerber_RegEx_Header,6),1))
+              \Header\Z=Val(Left(RegularExpressionGroup(Gerber_RegEx_Header,7),1))
+              \Header\DraftCode=Val(RegularExpressionGroup(Gerber_RegEx_Header,8))
+              \Header\MiscCode=Val(RegularExpressionGroup(Gerber_RegEx_Header,9))
               \Header\Scaling=Pow(10,\Header\Digits)
               \Header\Header("Header")=#Gerber_Header_OK
             Else
@@ -1641,21 +1614,21 @@ Module PureGerber
               \Header\Header("Header")=#Gerber_Header_Error
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_Names,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_Names,STemp$)
             ;{ IN/LN -> Image Name/Load Name (deprecated in 2013, use G04)
-            If ExamineRegularExpression(#Gerber_RegEx_Names,STemp$) And  NextRegularExpressionMatch(#Gerber_RegEx_Names)
+            If ExamineRegularExpression(Gerber_RegEx_Names,STemp$) And  NextRegularExpressionMatch(Gerber_RegEx_Names)
               AddElement(\Header\Names())
-              \Header\Names()=RegularExpressionGroup(#Gerber_RegEx_Names,1)
+              \Header\Names()=RegularExpressionGroup(Gerber_RegEx_Names,1)
               \Header\Header("Names")=#Gerber_Header_OK
             Else
               AddError("Name-line error: "+STemp$)
               \Header\Header("Names")=#Gerber_Header_Error
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_Unit,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_Unit,STemp$)
             ;{ MO -> Load unit (mm/inch)
-            If ExamineRegularExpression(#Gerber_RegEx_Unit,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_Unit)
-              Select RegularExpressionGroup(#Gerber_RegEx_Unit,1)
+            If ExamineRegularExpression(Gerber_RegEx_Unit,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Unit)
+              Select RegularExpressionGroup(Gerber_RegEx_Unit,1)
                 Case "IN"
                   \Unit=#Gerber_Unit_Inch
                 Case "MM"
@@ -1667,10 +1640,10 @@ Module PureGerber
               \Header\Header("Unit")=#Gerber_Header_Error
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_ExposureMode,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_ExposureMode,STemp$)
             ;{ IP -> Image Polarity (positive/negative) (deprecated in October 2013, because handling of IPNEG is not clearly defined)
-            If ExamineRegularExpression(#Gerber_RegEx_ExposureMode,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_ExposureMode)
-              Select RegularExpressionGroup(#Gerber_RegEx_ExposureMode,1)
+            If ExamineRegularExpression(Gerber_RegEx_ExposureMode,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_ExposureMode)
+              Select RegularExpressionGroup(Gerber_RegEx_ExposureMode,1)
                 Case "POS"
                   \Header\ExposureMode=#Gerber_EM_Positiv
                 Case "NEG"
@@ -1683,11 +1656,11 @@ Module PureGerber
               \Header\Header("ExposureMode")=#Gerber_Header_Error
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_Macro,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_Macro,STemp$)
             ;{ AM -> Create Aperture-Macro
-            If ExamineRegularExpression(#Gerber_RegEx_Macro,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_Macro)
-              MacroName$=RegularExpressionGroup(#Gerber_RegEx_Macro,1)
-              ATemp$=Trim(RegularExpressionGroup(#Gerber_RegEx_Macro,2),"*")
+            If ExamineRegularExpression(Gerber_RegEx_Macro,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Macro)
+              MacroName$=RegularExpressionGroup(Gerber_RegEx_Macro,1)
+              ATemp$=Trim(RegularExpressionGroup(Gerber_RegEx_Macro,2),"*")
               ACount=CountString(ATemp$,"*")+1
               For ACounter=1 To ACount
                 Temp$=StringField(ATemp$,ACounter,"*")
@@ -1773,15 +1746,15 @@ Module PureGerber
               AddError("Aperture-macro error: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_Apertures,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_Apertures,STemp$)
             ;{ AD -> Apertures Definition
-            If ExamineRegularExpression(#Gerber_RegEx_Apertures,STemp$)
-              While NextRegularExpressionMatch(#Gerber_RegEx_Apertures)
-                ATemp$=RegularExpressionGroup(#Gerber_RegEx_Apertures,1)
-                Select RegularExpressionGroup(#Gerber_RegEx_Apertures,2)
+            If ExamineRegularExpression(Gerber_RegEx_Apertures,STemp$)
+              While NextRegularExpressionMatch(Gerber_RegEx_Apertures)
+                ATemp$=RegularExpressionGroup(Gerber_RegEx_Apertures,1)
+                Select RegularExpressionGroup(Gerber_RegEx_Apertures,2)
                   Case "C"
                     \Data\Apertures(ATemp$)\Type=#Gerber_AT_Circle
-                    Temp$=RegularExpressionGroup(#Gerber_RegEx_Apertures,3)
+                    Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
                     \Data\Apertures(ATemp$)\Diameter=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                     Select CountString(Temp$,"X")
                       Case 1
@@ -1792,7 +1765,7 @@ Module PureGerber
                     EndSelect
                   Case "R"
                     \Data\Apertures(ATemp$)\Type=#Gerber_AT_Rectangle
-                    Temp$=RegularExpressionGroup(#Gerber_RegEx_Apertures,3)
+                    Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
                     \Data\Apertures(ATemp$)\X=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                     \Data\Apertures(ATemp$)\Y=ValD(StringField(Temp$,2,"X"))*\Header\Scaling
                     Select CountString(Temp$,"X")
@@ -1804,7 +1777,7 @@ Module PureGerber
                     EndSelect
                   Case "O"
                     \Data\Apertures(ATemp$)\Type=#Gerber_AT_Obround
-                    Temp$=RegularExpressionGroup(#Gerber_RegEx_Apertures,3)
+                    Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
                     \Data\Apertures(ATemp$)\X=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                     \Data\Apertures(ATemp$)\Y=ValD(StringField(Temp$,2,"X"))*\Header\Scaling
                     If CountString(Temp$,"X")=2
@@ -1812,7 +1785,7 @@ Module PureGerber
                     EndIf
                   Case "P"
                     \Data\Apertures(ATemp$)\Type=#Gerber_AT_Polygon
-                    Temp$=RegularExpressionGroup(#Gerber_RegEx_Apertures,3)
+                    Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
                     \Data\Apertures(ATemp$)\X=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                     \Data\Apertures(ATemp$)\Vertex=Val(StringField(Temp$,2,"X"))
                     Select CountString(Temp$,"X")
@@ -1826,7 +1799,7 @@ Module PureGerber
                     EndSelect
                   Default
                     \Data\Apertures(ATemp$)\Type=#Gerber_AT_ApertureMacro
-                    \Data\Apertures(ATemp$)\ApertureMacro=RegularExpressionGroup(#Gerber_RegEx_Apertures,2)
+                    \Data\Apertures(ATemp$)\ApertureMacro=RegularExpressionGroup(Gerber_RegEx_Apertures,2)
                     If Not FindMapElement(\Data\ApertureMacro(),\Data\Apertures(ATemp$)\ApertureMacro)
                       Debug "Missing Aperture macro: "+\Data\Apertures(ATemp$)\ApertureMacro
                     EndIf
@@ -1836,28 +1809,28 @@ Module PureGerber
               AddError("Apertur error: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_Attributes,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_Attributes,STemp$)
             ;{ TA -> Aperture Attributes
-            If ExamineRegularExpression(#Gerber_RegEx_Attributes,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_Attributes)
-              \Header\Attributes(RegularExpressionGroup(#Gerber_RegEx_Attributes,1))=RegularExpressionGroup(#Gerber_RegEx_Attributes,2)
+            If ExamineRegularExpression(Gerber_RegEx_Attributes,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Attributes)
+              \Header\Attributes(RegularExpressionGroup(Gerber_RegEx_Attributes,1))=RegularExpressionGroup(Gerber_RegEx_Attributes,2)
             Else
               AddError("Attribute error: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_Command_G04,STemp$)
+          ElseIf MatchRegularExpression(Gerber_Command_G04,STemp$)
             ;{ G04 -> Comment
             AddElement(\Header\Comments())
             \Header\Comments()=Mid(STemp$,4)
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_LP,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_LP,STemp$)
             ;{ LP -> Load Polarity (Dark/Clear)
             ReDim Path(ArraySize(Path())+1)
             Path(ArraySize(Path()))=Left(STemp$,3)
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_ApertureBlock,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_ApertureBlock,STemp$)
             ;{ AB -> Aperture Block (Start or End)
-            If ExamineRegularExpression(#Gerber_RegEx_ApertureBlock,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_ApertureBlock)
-              Temp$=RegularExpressionGroup(#Gerber_RegEx_ApertureBlock,1)
+            If ExamineRegularExpression(Gerber_RegEx_ApertureBlock,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_ApertureBlock)
+              Temp$=RegularExpressionGroup(Gerber_RegEx_ApertureBlock,1)
               Temp$=Right(Temp$,Len(Temp$)-1)
               If Temp$=""
                 If ListSize(BlockStack())>0
@@ -1889,7 +1862,7 @@ Module PureGerber
             ;{ G91 -> Set Coordinate format to incemental notation (deprecated in 2012)
             \Header\CoordinateMode=#Gerber_Coord_Incremental
             ;}  
-          ElseIf MatchRegularExpression(#Gerber_RegEx_MI,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_MI,STemp$)
             ;{ MI -> Mirroring (deprecated in December 2012, just check if strange value is set -> error message and ignore)
             Select STemp$
               Case "MIA0*","MIA0B0*","MIB0*"
@@ -1898,12 +1871,12 @@ Module PureGerber
                 AddError("Deprecated MI with non-standard values found! Will be ignored and may affect mirroring of the PCB: "+STemp$)
             EndSelect
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_SF,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_SF,STemp$)
             ;{ SF -> Scale factor (deprecated in December 2012, just check if strange value is set -> error message and ignore)
-            If ExamineRegularExpression(#Gerber_RegEx_SF,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_SF)
+            If ExamineRegularExpression(Gerber_RegEx_SF,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_SF)
               ACount=0
-              For ACounter=1 To CountRegularExpressionGroups(#Gerber_RegEx_SF)
-                Temp$=RegularExpressionGroup(#Gerber_RegEx_SF,ACounter)
+              For ACounter=1 To CountRegularExpressionGroups(Gerber_RegEx_SF)
+                Temp$=RegularExpressionGroup(Gerber_RegEx_SF,ACounter)
                 Temp$=Right(Temp$,Len(Temp$)-1)
                 If Left(Temp$,1)=".":Temp$="0"+Temp$:EndIf
                 If ValF(Temp$)<>1.0
@@ -1918,33 +1891,33 @@ Module PureGerber
               AddError("Faulty SF-command: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_IR,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_IR,STemp$)
             ;{ IR -> Image rotation (deprecated in December 2012, completely ignored if not 0°, otherwise no effect)
             If STemp$<>"IR0*"
               AddError("Deprecated image rotation-command will be ignored: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_AS,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_AS,STemp$)
             ;{ AS -> Axis selection (deprecated in December 2012, ignored if not A=X/B=Y, otherwise no effect)
             If STemp$<>"ASAXBY*"
               AddError("Deprecated axis selection-command will be ignored: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_SR,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_SR,STemp$)
             ;{ SR -> Step and repeat (todo)
-            If ExamineRegularExpression(#Gerber_RegEx_SR,STemp$) And NextRegularExpressionMatch(#Gerber_RegEx_SR)
-              If Val(RegularExpressionGroup(#Gerber_RegEx_SR,1))<>1 Or Val(RegularExpressionGroup(#Gerber_RegEx_SR,2))<>1
+            If ExamineRegularExpression(Gerber_RegEx_SR,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_SR)
+              If Val(RegularExpressionGroup(Gerber_RegEx_SR,1))<>1 Or Val(RegularExpressionGroup(Gerber_RegEx_SR,2))<>1
                 AddError("Step and repeat command which can't be processed (because it's not programmed yet)!")
               EndIf
             Else
               AddError("Stepmode error: "+STemp$)
             EndIf
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_OF,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_OF,STemp$)
             ;{ OF -> Offset factor (deprecated in December 2012, completely ignored)
             AddError("Deprecated offset-command will be ignored: "+STemp$)
             ;}
-          ElseIf MatchRegularExpression(#Gerber_RegEx_LS,STemp$)
+          ElseIf MatchRegularExpression(Gerber_RegEx_LS,STemp$)
             ;{ LS -> Load scaling
             ReDim Path(ArraySize(Path())+1)
             Path(ArraySize(Path()))=Left(STemp$,Len(STemp$)-1)
@@ -1972,7 +1945,7 @@ Module PureGerber
         Max=ArraySize(Path())
         For Pos=0 To Max
           ATemp$=Path(Pos)
-          sum=ExtractRegularExpression(#Gerber_RegEx_Omitter,ATemp$,Out$())
+          sum=ExtractRegularExpression(Gerber_RegEx_Omitter,ATemp$,Out$())
           If sum>0
             For count=0 To ArraySize(Out$())
               If FindString(Out$(count),"-")
@@ -1993,13 +1966,13 @@ Module PureGerber
         Max=ArraySize(Path())
         Position\X=0:Position\Y=0
         For Pos=0 To Max
-          If ExamineRegularExpression(#Gerber_RegEx_PreprocessX,Path(Pos)) And NextRegularExpressionMatch(#Gerber_RegEx_PreprocessX)
-            Position\X+ValD(RegularExpressionGroup(#Gerber_RegEx_PreprocessX,1))
-            Path(Pos)=ReplaceString(Path(Pos),RegularExpressionGroup(#Gerber_RegEx_PreprocessX,1),Str(Position\X))
+          If ExamineRegularExpression(Gerber_RegEx_PreprocessX,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_PreprocessX)
+            Position\X+ValD(RegularExpressionGroup(Gerber_RegEx_PreprocessX,1))
+            Path(Pos)=ReplaceString(Path(Pos),RegularExpressionGroup(Gerber_RegEx_PreprocessX,1),Str(Position\X))
           EndIf
-          If ExamineRegularExpression(#Gerber_RegEx_PreprocessY,Path(Pos)) And NextRegularExpressionMatch(#Gerber_RegEx_PreprocessY)
-            Position\Y+ValD(RegularExpressionGroup(#Gerber_RegEx_PreprocessY,1))
-            Path(Pos)=ReplaceString(Path(Pos),RegularExpressionGroup(#Gerber_RegEx_PreprocessY,1),Str(Position\Y))
+          If ExamineRegularExpression(Gerber_RegEx_PreprocessY,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_PreprocessY)
+            Position\Y+ValD(RegularExpressionGroup(Gerber_RegEx_PreprocessY,1))
+            Path(Pos)=ReplaceString(Path(Pos),RegularExpressionGroup(Gerber_RegEx_PreprocessY,1),Str(Position\Y))
           EndIf
           ;           Select Path(Pos)
           ;             Case "M00","M01","M02";M01 maybe without effect (should maybe not stop the processing!)
@@ -2115,10 +2088,10 @@ Module PureGerber
   
 EndModule
 
-; IDE Options = PureBasic 6.03 LTS (Windows - x64)
-; CursorPosition = 658
-; FirstLine = 58
-; Folding = BAABAADAACAm3PegGIE-AAAmADgAAuFm+
+; IDE Options = PureBasic 6.04 LTS (Windows - x64)
+; CursorPosition = 325
+; FirstLine = 25
+; Folding = AAABAw---AAAAAAAAAEALAAAAAAAAAAA-
 ; Optimizer
 ; EnableAsm
 ; EnableThread

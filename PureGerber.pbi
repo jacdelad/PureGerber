@@ -1,5 +1,5 @@
 ﻿;{ PureGerber Module 1.0 WIP
-;04.01.2024
+;17.01.2024
 ;by Jac de Lad
 ;
 ;READ BEFORE USAGE:
@@ -319,6 +319,7 @@ Module PureGerber
     SizeY.l
     UserData.i
     Window.i
+    Rotation.f
   EndStructure
   
   UseLZMAPacker()
@@ -1166,17 +1167,37 @@ Module PureGerber
               Draw=#True
               CompilerIf #PB_Compiler_OS=#PB_OS_Windows
               Case #My_EventType_MouseWheelDown,#My_EventType_MouseWheelUp
-                *Data\Zoom=*Data\Zoom+(1+2*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Control))**Data\ZoomFactor**Data\Zoom*EventData()
+                If GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Control
+                  *Data\Rotation-90*EventData()
+                  While *Data\Rotation>=360
+                    *Data\Rotation-360
+                  Wend
+                  While *Data\Rotation<0
+                    *Data\Rotation+360
+                  Wend
+                Else
+                  *Data\Zoom=*Data\Zoom+(1+4*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Shift))**Data\ZoomFactor**Data\Zoom*EventData()
+                EndIf
                 Draw=#True
               CompilerEndIf
             Case #PB_EventType_MouseWheel
-              *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-              *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
-              *Data\X=(*Data\LastX-*Data\X)/*Data\Zoom
-              *Data\Y=(*Data\LastY-*Data\Y)/*Data\Zoom
-              *Data\Zoom=*Data\Zoom+(1+2*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Control))**Data\ZoomFactor**Data\Zoom*GetGadgetAttribute(Gadget,#PB_Canvas_WheelDelta)
-              *Data\X=-1*(*Data\X**Data\Zoom-*Data\LastX)
-              *Data\Y=-1*(*Data\Y**Data\Zoom-*Data\LastY)
+              If GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Control
+                *Data\Rotation-90*GetGadgetAttribute(Gadget,#PB_Canvas_WheelDelta)
+                While *Data\Rotation>=360
+                  *Data\Rotation-360
+                Wend
+                While *Data\Rotation<0
+                  *Data\Rotation+360
+                Wend
+              Else
+                *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                *Data\X=(*Data\LastX-*Data\X)/*Data\Zoom
+                *Data\Y=(*Data\LastY-*Data\Y)/*Data\Zoom
+                *Data\Zoom=*Data\Zoom+(1+4*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Shift))**Data\ZoomFactor**Data\Zoom*GetGadgetAttribute(Gadget,#PB_Canvas_WheelDelta)
+                *Data\X=-1*(*Data\X**Data\Zoom-*Data\LastX)
+                *Data\Y=-1*(*Data\Y**Data\Zoom-*Data\LastY)
+              EndIf
               Draw=#True
             Case #PB_EventType_LeftButtonDown
               *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
@@ -1189,6 +1210,12 @@ Module PureGerber
               *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
               *Data\LeftLock=#False
               Draw=#True
+            Case #PB_EventType_MiddleButtonUp
+              *Data\Rotation+90
+              If *Data\Rotation>=360
+                *Data\Rotation-360
+              EndIf
+              Draw=#True
             Case #PB_EventType_MouseEnter
               *Data\LastActiveGadget=GetActiveGadget()
               SetActiveGadget(Gadget)
@@ -1196,8 +1223,20 @@ Module PureGerber
               SetActiveGadget(*Data\LastActiveGadget)
             Case #PB_EventType_MouseMove
               If *Data\LeftLock
-                *Data\X=*Data\X-*Data\LastX+GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-                *Data\Y=*Data\Y-*Data\LastY+GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                Select *Data\Rotation
+                  Case 0
+                    *Data\X=*Data\X-*Data\LastX+GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                    *Data\Y=*Data\Y-*Data\LastY+GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                  Case 90
+                    *Data\X=*Data\X+*Data\LastY-GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                    *Data\Y=*Data\Y-*Data\LastX+GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                  Case 180
+                    *Data\X=*Data\X+*Data\LastX-GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                    *Data\Y=*Data\Y+*Data\LastY-GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                  Case 270
+                    *Data\X=*Data\X-*Data\LastY+GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                    *Data\Y=*Data\Y+*Data\LastX-GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                EndSelect
                 *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
                 *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
                 Draw=#True
@@ -1212,6 +1251,7 @@ Module PureGerber
             ScaleCoordinates(Size\X*\DrawScaling**Data\Zoom,Size\X*\DrawScaling**Data\Zoom,#PB_Coordinate_User)
             TranslateCoordinates(-\Min\X+0.5*(1-\DrawScaling)*(\Max\X-\Min\X),\Min\Y+0.5*(1-\DrawScaling)*(\Max\Y-\Min\Y),#PB_Coordinate_User)
             FlipCoordinatesY(0.5*(\Max\Y-\Min\Y),#PB_Coordinate_User)
+            RotateCoordinates(ConvertCoordinateX(GadgetWidth(Gadget)/2,GadgetHeight(Gadget)/2,#PB_Coordinate_Output,#PB_Coordinate_User),ConvertCoordinateY(GadgetWidth(Gadget)/2,GadgetHeight(Gadget)/2,#PB_Coordinate_Output,#PB_Coordinate_User),*Data\Rotation,#PB_Coordinate_User)
             If *Gerber\FillMode=#Gerber_FillMode_Fill
               PlotFromCache(*Gerber\Cache\Filled(),*Gerber)
             Else
@@ -1256,6 +1296,7 @@ Module PureGerber
       *Data\Y=0
       *Data\LeftLock=0
       *Data\Zoom=1.0
+      *Data\Rotation=0
       If ReDraw
         RedrawGerberGadget(Gadget)
       EndIf
@@ -1305,7 +1346,8 @@ Module PureGerber
       *Data\Y=0
       SetGadgetData(Gadget,*Data)
       If Not NoDrawing
-        PostEvent(#PB_Event_Gadget,GetProp_(UseGadgetList(0),StringField("PB_WINDOWID",1,","))-1,Gadget,#PB_EventType_Resize)
+        ;PostEvent(#PB_Event_Gadget,GetProp_(UseGadgetList(0),StringField("PB_WINDOWID",1,","))-1,Gadget,#PB_EventType_Resize)
+        RedrawGerberGadget(Gadget)
       EndIf
       ProcedureReturn #True
     Else
@@ -2088,10 +2130,9 @@ Module PureGerber
   
 EndModule
 
-; IDE Options = PureBasic 6.04 LTS (Windows - x64)
-; CursorPosition = 325
-; FirstLine = 25
-; Folding = AAABAw---AAAAAAAAAEALAAAAAAAAAAA-
+; IDE Options = PureBasic 6.10 beta 2 (Windows - x64)
+; CursorPosition = 1
+; Folding = BAABAAAAAAAAAAAAAAEw-AAAAAAAAAAAg
 ; Optimizer
 ; EnableAsm
 ; EnableThread

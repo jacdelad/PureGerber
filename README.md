@@ -24,3 +24,4 @@ TBD:
 - Procesing of Metadata (attributes...)
 - PDF output
 - Moire/Thermal
+- Full compatibility with Gerber RS-274X/Gerber X3

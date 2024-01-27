@@ -16,9 +16,11 @@ Done:
 - GerberGadget based on a CanvasGadget with zoom, movement, rotation
 - All available OS, ASM and C backend (tested on Windows)
 
-Missing/WIP:
-- Moire/Thermal
+WIP:
 - StepMode
 - Variables
+
+TBD:
 - Procesing of Metadata (attributes...)
 - PDF output
+- Moire/Thermal

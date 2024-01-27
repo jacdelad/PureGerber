@@ -10,10 +10,15 @@ Done:
 - Basic Gerber rendering
 - BlockMode
 - Filled and Skeleton view
-- Own, optimized Gerber format (PureGerber, *.pgr)
+- Own, optimized Gerber format (PureGerber, *.pgr, read and write)
+- Standard apertures in case of missing apertures
 - Export to SVG
+- GerberGadget based on a CanvasGadget with zoom, movement, rotation
+- all available OS, ASM and C backend
 
 Missing/WIP:
+- Moire/Thermal
 - StepMode
 - Variables
 - Procesing of Metadata (attributes...)
+- PDF output

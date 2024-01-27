@@ -1,4 +1,13 @@
-﻿;{ PureGerber Module 1.0 WIP
+﻿;ToDo:
+;- Variablen (Punktrechnung vor Strichrechnung!!!)
+;- Step-Modus
+;- Fix für Zoom/Bewegung bei Rotation
+;- Mehrere Map-Zugriffe nacheinander ohne erneutes Hashing
+;- PDF-Ausgabe
+;- SVG-Ausgabe korrigieren (Zoom-Faktor, minimal kleiner skalieren...)
+;- Moire/Thermal
+
+;{ PureGerber Module 1.0 WIP
 ;26.01.2024
 ;by Jac de Lad
 ;For all platforms (tested only on Windows)
@@ -28,7 +37,6 @@
 ;- Primitives: Moire (deprecated) and Thermal (code 6 and 7)
 ;- variables ($1..$n)
 ;- step and repeat (SR)
-;- Some transformations: LM, LR and LS -> WIP
 ;
 ;This module/library does not really check for errors. Faulty Gerber files may be rendered incompletely/wrongly without warning.
 ;
@@ -91,6 +99,7 @@ DeclareModule PureGerber
   EndStructure
   Structure Gerber_AM
     List Primitives.Gerber_Primitive()
+    VariableMacro.s
   EndStructure
   Structure Gerber_Aperture
     Type.a
@@ -257,26 +266,25 @@ Module PureGerber
     #Gerber_Header_OK
   EndEnumeration
   ;{ Create RegEx
-  Global Gerber_RegEx_Header=CreateRegularExpression(#PB_Any,"^FS([L|N|T|D])([A|I])(\d?)(\d?)X(\d{2})Y(\d{2})(Z(\d{2}))?(D(\d+))?(M(\d+))?$")
-  Global Gerber_RegEx_Names=CreateRegularExpression(#PB_Any,"^[IL]N([^\*]+)$")
-  Global Gerber_RegEx_Unit=CreateRegularExpression(#PB_Any,"^MO(MM|IN)$")
-  Global Gerber_RegEx_ExposureMode=CreateRegularExpression(#PB_Any,"^IP(POS|NEG)$")
-  Global Gerber_RegEx_Macro=CreateRegularExpression(#PB_Any,"^AM([^\*]+)\*([^\%]+)$")
-  Global Gerber_RegEx_Apertures=CreateRegularExpression(#PB_Any,"^ADD(\d+)([^\,\%]+)\,?(.*)$")
-  Global Gerber_RegEx_Attributes=CreateRegularExpression(#PB_Any,"^TF\.(\w+)\,(.+)$")
-  Global Gerber_RegEx_Omitter=CreateRegularExpression(#PB_Any,"[XYIJ][-?\d]+")
+  Global Gerber_RegEx_AB=CreateRegularExpression(#PB_Any,"^AB(D\d+)?$")
+  Global Gerber_RegEx_AD=CreateRegularExpression(#PB_Any,"^ADD(\d+)([^\,\%]+)\,?(.*)$")
+  Global Gerber_RegEx_AM=CreateRegularExpression(#PB_Any,"^AM([^\*]+)\*([^\%]+)$")
+  Global Gerber_RegEx_AS=CreateRegularExpression(#PB_Any,"^ASAXBY|ASAYBX$")
+  Global Gerber_RegEx_FS=CreateRegularExpression(#PB_Any,"^FS([L|N|T|D])([A|I])(\d?)(\d?)X(\d{2})Y(\d{2})(Z(\d{2}))?(D(\d+))?(M(\d+))?$")
+  Global Gerber_RegEx_ILN=CreateRegularExpression(#PB_Any,"^[IL]N([^\*]+)$")
+  Global Gerber_RegEx_IP=CreateRegularExpression(#PB_Any,"^IP(POS|NEG)$")
+  Global Gerber_RegEx_IR=CreateRegularExpression(#PB_Any,"^IR[0|90|180|270]$")
   Global Gerber_RegEx_LS=CreateRegularExpression(#PB_Any,"^LS([\d\.]+)$")
-  Global Gerber_RegEx_LR=CreateRegularExpression(#PB_Any,"^LR(\d+)$")
   Global Gerber_RegEx_LM=CreateRegularExpression(#PB_Any,"^LM([XY]+)$")
   Global Gerber_RegEx_LP=CreateRegularExpression(#PB_Any,"^LP([CD])$")
+  Global Gerber_RegEx_LR=CreateRegularExpression(#PB_Any,"^LR(\d+)$")
   Global Gerber_RegEx_MI=CreateRegularExpression(#PB_Any,"^MI([AB][01])([B][01])?$")
-  Global Gerber_RegEx_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?$")
+  Global Gerber_RegEx_MO=CreateRegularExpression(#PB_Any,"^MO(MM|IN)$")
   Global Gerber_RegEx_OF=CreateRegularExpression(#PB_Any,"^OF([AB]-?[\d\.]+)?(B-?[\d\.]+)?$")
-  Global Gerber_RegEx_IR=CreateRegularExpression(#PB_Any,"^IR[0|90|180|270]$")
-  Global Gerber_RegEx_AS=CreateRegularExpression(#PB_Any,"^ASAXBY|ASAYBX$")
-  Global Gerber_RegEx_SR=CreateRegularExpression(#PB_Any,"^SRX(\d+)Y(\d+)I(-?[\d\.]+)J(-?[\d\.]+)$")
-  Global Gerber_RegEx_ApertureBlock=CreateRegularExpression(#PB_Any,"^ABD(\d+)$")
-  Global Gerber_RegEx_ApertureBlockEnd=CreateRegularExpression(#PB_Any,"^AB$")
+  Global Gerber_RegEx_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?$")
+  Global Gerber_RegEx_SR=CreateRegularExpression(#PB_Any,"^SRX(\d+)Y(\d+)I(-?\d*\.?\d*)J(-?\d*\.?\d*)$")
+  Global Gerber_RegEx_TF=CreateRegularExpression(#PB_Any,"^TF\.(\w+)\,(.+)$")
+  Global Gerber_RegEx_Omitter=CreateRegularExpression(#PB_Any,"[XYIJ][-?\d]+")
   Global Gerber_RegEx_PreprocessX=CreateRegularExpression(#PB_Any,"X(-?\d+)")
   Global Gerber_RegEx_PreprocessY=CreateRegularExpression(#PB_Any,"Y(-?\d+)")
   Global Gerber_RegEx_Pace=CreateRegularExpression(#PB_Any,"^([XYIJDGM]-?\d+)([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?([XYIJD]-?\d+)?$")
@@ -289,15 +297,6 @@ Module PureGerber
   Global Gerber_Command_G23=CreateRegularExpression(#PB_Any,"^G0[23]([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?(D01)?$")
   Global Gerber_Command_G04=CreateRegularExpression(#PB_Any,"^G04.*$")
   Global Gerber_Command_FollowUp=CreateRegularExpression(#PB_Any,"^([XYIJ]-?\d+){1,4}$")
-  Global Gerber_Command_IP=CreateRegularExpression(#PB_Any,"^IP(POS|NEG)$")
-  Global Gerber_Command_IR=CreateRegularExpression(#PB_Any,"^IR[0|90|180|270]$")
-  Global Gerber_Command_LM=CreateRegularExpression(#PB_Any,"^LM([XY]+)$")
-  Global Gerber_Command_LP=CreateRegularExpression(#PB_Any,"^LP([CD])$")
-  Global Gerber_Command_LR=CreateRegularExpression(#PB_Any,"^LR(\d+)$")
-  Global Gerber_Command_LS=CreateRegularExpression(#PB_Any,"^LS([\d\.]+)$")
-  Global Gerber_Command_OF=CreateRegularExpression(#PB_Any,"^OF([AB]-?[\d\.]+)?(B-?[\d\.]+)?$")
-  Global Gerber_Command_MI=CreateRegularExpression(#PB_Any,"^MI([AB][01])([B][01])?$")
-  Global Gerber_Command_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?$")
   Global Gerber_Command_M=CreateRegularExpression(#PB_Any,"^M(\d{2})$")
   ;}
   Enumeration PaceID
@@ -1254,8 +1253,9 @@ Module PureGerber
                 \Apertures()\Diameter=DefaultApertures()\Diameter**Gerber\Header\Scaling
                 *Gerber\Data\ScaleFactor=1.0
                 *Gerber\Data\Rotation=0.0
+                Aperture=Temp$
               Else
-                ;AddError("Unknown aperture: D"+Temp$)
+                AddError("Unknown aperture (and no standard aperture available): D"+Temp$)
               EndIf
             EndIf
             GMode=#Gerber_GMode_Undefined
@@ -1279,29 +1279,29 @@ Module PureGerber
             DrawGerber(Position)
             G36=#False
             ;}
-          ElseIf ExamineRegularExpression(Gerber_Command_LS,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_LS)
+          ElseIf ExamineRegularExpression(Gerber_RegEx_LS,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_LS)
             ;{ LS: Set scale factor (reset after every G54!)
             DrawGerber(Position)
-            *Gerber\Data\ScaleFactor=ValF(RegularExpressionGroup(Gerber_Command_LS,1))
+            *Gerber\Data\ScaleFactor=ValF(RegularExpressionGroup(Gerber_RegEx_LS,1))
             ;}
-          ElseIf ExamineRegularExpression(Gerber_Command_LR,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_LR)
+          ElseIf ExamineRegularExpression(Gerber_RegEx_LR,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_LR)
             ;{ LR: Set rotation (reset after every G54!)
-            *Gerber\Data\Rotation=ValF(RegularExpressionGroup(Gerber_Command_LR,1))
+            *Gerber\Data\Rotation=ValF(RegularExpressionGroup(Gerber_RegEx_LR,1))
             ;}
-          ElseIf MatchRegularExpression(Gerber_Command_IR,Path(Pos))
+          ElseIf MatchRegularExpression(Gerber_RegEx_IR,Path(Pos))
             ;  IR: Image rotation (obsolete and ignored)
-          ElseIf MatchRegularExpression(Gerber_Command_OF,Path(Pos)) 
+          ElseIf MatchRegularExpression(Gerber_RegEx_OF,Path(Pos)) 
             ;  OF: Offset (obsolete and ignored)
-          ElseIf MatchRegularExpression(Gerber_Command_MI,Path(Pos)) 
+          ElseIf MatchRegularExpression(Gerber_RegEx_MI,Path(Pos)) 
             ;  MI: mirror image (obsolete and ignored)
-          ElseIf MatchRegularExpression(Gerber_Command_SF,Path(Pos)) 
+          ElseIf MatchRegularExpression(Gerber_RegEx_SF,Path(Pos)) 
             ;  SF: Scale factor (obsolete and ignored)
-          ElseIf MatchRegularExpression(Gerber_Command_IP,Path(Pos)) 
+          ElseIf MatchRegularExpression(Gerber_RegEx_IP,Path(Pos)) 
             ;  IP: Image polarity (obsolete and ignored)
-          ElseIf ExamineRegularExpression(Gerber_Command_LP,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_LP)
+          ElseIf ExamineRegularExpression(Gerber_RegEx_LP,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_LP)
             ;{ LPx: Set to Dark/Clear Mode
             DrawGerber(Position)
-            Select RegularExpressionGroup(Gerber_Command_LP,1)
+            Select RegularExpressionGroup(Gerber_RegEx_LP,1)
               Case "D"
                 *Gerber\Data\Polarity=#Gerber_Polarity_Dark
               Case "C"
@@ -1495,8 +1495,22 @@ Module PureGerber
                   *Data\Rotation+360
                 Wend
               Else
-                *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
-                *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                Select *Data\Rotation
+                  Case 0
+                    *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                    *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                  Case 90  
+                    ;Needs fix!
+                    *Data\LastX=GadgetHeight(Gadget)-GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                    *Data\LastY=GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                  Case 180
+                    *Data\LastX=GadgetWidth(Gadget)-GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                    *Data\LastY=GadgetHeight(Gadget)-GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                  Case 270
+                    ;Needs fix!
+                    *Data\LastX=GetGadgetAttribute(Gadget,#PB_Canvas_MouseY)
+                    *Data\LastY=GadgetWidth(Gadget)-GetGadgetAttribute(Gadget,#PB_Canvas_MouseX)
+                EndSelect
                 *Data\X=(*Data\LastX-*Data\X)/*Data\Zoom
                 *Data\Y=(*Data\LastY-*Data\Y)/*Data\Zoom
                 *Data\Zoom=*Data\Zoom+(1+4*Bool(GetGadgetAttribute(Gadget,#PB_Canvas_Modifiers)&#PB_Canvas_Shift))**Data\ZoomFactor**Data\Zoom*GetGadgetAttribute(Gadget,#PB_Canvas_WheelDelta)
@@ -1930,7 +1944,7 @@ Module PureGerber
   
   Procedure CreateGerberDataFromString(Gerber$)
     Protected Tick.q=ElapsedMilliseconds(),CallbackTick.q=Tick+CallbackTimeout,MacroName$,STemp$,Temp$,PCount.l,PCounter.l,Counter.l,TCount.l,TCounter.l,ACount.l,ATemp$,ACounter.l,*Gerber.Gerber,Position.Pos,Image.i,Dim Out$(0),sum.a,count
-    Protected Dim Split$(0),NewList BlockStack.l(),Pos.l,Max.l,Dim Path.s(0),RAWSTemp$,Multi.l,MultiMax.l
+    Protected Dim Split$(0),NewList BlockStack.s(),Pos.l,Max.l,Dim Path.s(0),RAWSTemp$,Multi.l,MultiMax.l
     If *Callback
       CallFunctionFast(*Callback,0,1)
     EndIf
@@ -1954,37 +1968,38 @@ Module PureGerber
           
           STemp$=Trim(StringField(RAWSTemp$,Multi,"*"))
           If STemp$<>""
-            ;STemp$+"*"
             
-            If MatchRegularExpression(Gerber_RegEx_ApertureBlockEnd,STemp$)
-              ;{ AB -> Aperture Block (End)
-              If ListSize(BlockStack())=0
-                AddError("Aperture Block End without start (AB)!")
-              Else
-                LastElement(BlockStack())
-                DeleteElement(BlockStack())
-              EndIf
-              ;}
-            ElseIf MatchRegularExpression(Gerber_RegEx_ApertureBlock,STemp$)
-              ;{ ABDxxx -> Aperture Block (Start)
-              If ExamineRegularExpression(Gerber_RegEx_ApertureBlock,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_ApertureBlock)
-                LastElement(BlockStack())
-                AddElement(BlockStack())
-                BlockStack()=Val(RegularExpressionGroup(Gerber_RegEx_ApertureBlock,1))
-                \Data\Apertures(Str(BlockStack()))\Type=#Gerber_AT_ApertureBlock
+            If MatchRegularExpression(Gerber_RegEx_AB,STemp$)
+              ;{ AB -> Aperture Block
+              If ExamineRegularExpression(Gerber_RegEx_AB,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_AB)
+                ATemp$=RegularExpressionGroup(Gerber_RegEx_AB,1)
+                If ATemp$=""
+                  If ListSize(BlockStack())=0
+                    AddError("Aperture Block End without start (AB)!")
+                  Else
+                    LastElement(BlockStack())
+                    DeleteElement(BlockStack())
+                  EndIf
+                Else
+                  LastElement(BlockStack())
+                  AddElement(BlockStack())
+                  BlockStack()=Mid(ATemp$,2)
+                  \Data\Apertures(BlockStack())\Type=#Gerber_AT_ApertureBlock
+                EndIf
               EndIf
               ;}
             ElseIf ListSize(BlockStack())>0
-              ;{ Fill Aperture Block
+              ;{ Fill command into aperture block
               LastElement(BlockStack())
-              SplitL(Trim(STemp$,"*"),\Data\Apertures(Str(BlockStack()))\ApertureBlock())
+              ReDim \Data\Apertures(BlockStack())\ApertureBlock(ArraySize(\Data\Apertures(BlockStack())\ApertureBlock())+1)
+              \Data\Apertures(BlockStack())\ApertureBlock(ArraySize(\Data\Apertures(BlockStack())\ApertureBlock()))=STemp$
               ;}
             Else
               
-              If MatchRegularExpression(Gerber_RegEx_Header,STemp$)
+              If MatchRegularExpression(Gerber_RegEx_FS,STemp$)
                 ;{ FS -> Format Specification
-                If ExamineRegularExpression(Gerber_RegEx_Header,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Header)
-                  Select RegularExpressionGroup(Gerber_RegEx_Header,1);Ommited Zeros
+                If ExamineRegularExpression(Gerber_RegEx_FS,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_FS)
+                  Select RegularExpressionGroup(Gerber_RegEx_FS,1);Ommited Zeros
                     Case "L","N"
                       \Header\OmittedZeros=#Gerber_OZ_Leading
                     Case "T"
@@ -1992,57 +2007,48 @@ Module PureGerber
                     Case "D"
                       \Header\OmittedZeros=#Gerber_OZ_No
                   EndSelect
-                  Select RegularExpressionGroup(Gerber_RegEx_Header,2);Coordinate Mode
+                  Select RegularExpressionGroup(Gerber_RegEx_FS,2);Coordinate Mode
                     Case "A"
                       \Header\CoordinateMode=#Gerber_Coord_Absolute
                     Case "I"
                       \Header\CoordinateMode=#Gerber_Coord_Incremental
                   EndSelect
-                  \Header\SequenceNumber=Val(RegularExpressionGroup(Gerber_RegEx_Header,3))
-                  \Header\PreparatoryFunctionCode=Val(RegularExpressionGroup(Gerber_RegEx_Header,4))
-                  \Header\X=Val(Left(RegularExpressionGroup(Gerber_RegEx_Header,5),1))
-                  \Header\Digits=Val(Right(RegularExpressionGroup(Gerber_RegEx_Header,5),1))
-                  \Header\Y=Val(Left(RegularExpressionGroup(Gerber_RegEx_Header,6),1))
-                  \Header\Z=Val(Left(RegularExpressionGroup(Gerber_RegEx_Header,7),1))
-                  \Header\DraftCode=Val(RegularExpressionGroup(Gerber_RegEx_Header,8))
-                  \Header\MiscCode=Val(RegularExpressionGroup(Gerber_RegEx_Header,9))
+                  \Header\SequenceNumber=Val(RegularExpressionGroup(Gerber_RegEx_FS,3))
+                  \Header\PreparatoryFunctionCode=Val(RegularExpressionGroup(Gerber_RegEx_FS,4))
+                  \Header\X=Val(Left(RegularExpressionGroup(Gerber_RegEx_FS,5),1))
+                  \Header\Digits=Val(Right(RegularExpressionGroup(Gerber_RegEx_FS,5),1))
+                  \Header\Y=Val(Left(RegularExpressionGroup(Gerber_RegEx_FS,6),1))
+                  \Header\Z=Val(Left(RegularExpressionGroup(Gerber_RegEx_FS,7),1))
+                  \Header\DraftCode=Val(RegularExpressionGroup(Gerber_RegEx_FS,8))
+                  \Header\MiscCode=Val(RegularExpressionGroup(Gerber_RegEx_FS,9))
                   \Header\Scaling=Pow(10,\Header\Digits)
                   \Header\Header("Header")=#Gerber_Header_OK
-                Else
-                  AddError("Header error: "+STemp$)
-                  \Header\Header("Header")=#Gerber_Header_Error
                 EndIf
                 ;}
-              ElseIf MatchRegularExpression(Gerber_RegEx_Names,STemp$)
+              ElseIf MatchRegularExpression(Gerber_RegEx_ILN,STemp$)
                 ;{ IN/LN -> Image Name/Load Name (deprecated in 2013, use G04)
-                If ExamineRegularExpression(Gerber_RegEx_Names,STemp$) And  NextRegularExpressionMatch(Gerber_RegEx_Names)
+                If ExamineRegularExpression(Gerber_RegEx_ILN,STemp$) And  NextRegularExpressionMatch(Gerber_RegEx_ILN)
                   AddElement(\Header\Names())
-                  \Header\Names()=RegularExpressionGroup(Gerber_RegEx_Names,1)
+                  \Header\Names()=RegularExpressionGroup(Gerber_RegEx_ILN,1)
                   \Header\Header("Names")=#Gerber_Header_OK
-                Else
-                  AddError("Name-line error: "+STemp$)
-                  \Header\Header("Names")=#Gerber_Header_Error
                 EndIf
                 ;}
-              ElseIf MatchRegularExpression(Gerber_RegEx_Unit,STemp$)
+              ElseIf MatchRegularExpression(Gerber_RegEx_MO,STemp$)
                 ;{ MO -> Load unit (mm/inch)
-                If ExamineRegularExpression(Gerber_RegEx_Unit,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Unit)
-                  Select RegularExpressionGroup(Gerber_RegEx_Unit,1)
+                If ExamineRegularExpression(Gerber_RegEx_MO,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_MO)
+                  Select RegularExpressionGroup(Gerber_RegEx_MO,1)
                     Case "IN"
                       \Unit=#Gerber_Unit_Inch
                     Case "MM"
                       \Unit=#Gerber_Unit_MM
                   EndSelect
                   \Header\Header("Unit")=#Gerber_Header_OK
-                Else
-                  AddError("MO-line error: "+STemp$)
-                  \Header\Header("Unit")=#Gerber_Header_Error
                 EndIf
                 ;}
-              ElseIf MatchRegularExpression(Gerber_RegEx_ExposureMode,STemp$)
+              ElseIf MatchRegularExpression(Gerber_RegEx_IP,STemp$)
                 ;{ IP -> Image Polarity (positive/negative) (deprecated in October 2013, because handling of IPNEG is not clearly defined)
-                If ExamineRegularExpression(Gerber_RegEx_ExposureMode,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_ExposureMode)
-                  Select RegularExpressionGroup(Gerber_RegEx_ExposureMode,1)
+                If ExamineRegularExpression(Gerber_RegEx_IP,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_IP)
+                  Select RegularExpressionGroup(Gerber_RegEx_IP,1)
                     Case "POS"
                       \Header\ExposureMode=#Gerber_EM_Positiv
                     Case "NEG"
@@ -2050,111 +2056,110 @@ Module PureGerber
                       AddError("Deprecated IPNEG-command used. Setting ExposurMode to negative but result may be incorrect!")
                   EndSelect
                   \Header\Header("ExposureMode")=#Gerber_Header_OK
-                Else
-                  AddError("Exposuremode line error: "+STemp$)
-                  \Header\Header("ExposureMode")=#Gerber_Header_Error
                 EndIf
                 ;}
-              ElseIf MatchRegularExpression(Gerber_RegEx_Macro,RAWSTemp$)
+              ElseIf MatchRegularExpression(Gerber_RegEx_AM,RAWSTemp$)
                 ;{ AM -> Create Aperture-Macro
-                If ExamineRegularExpression(Gerber_RegEx_Macro,RAWSTemp$) And NextRegularExpressionMatch(Gerber_RegEx_Macro)
-                  MacroName$=RegularExpressionGroup(Gerber_RegEx_Macro,1)
-                  ATemp$=Trim(RegularExpressionGroup(Gerber_RegEx_Macro,2),"*")
-                  ACount=CountString(ATemp$,"*")+1
-                  For ACounter=1 To ACount
-                    Temp$=StringField(ATemp$,ACounter,"*")
-                    TCount=CountString(Temp$,",")+1
-                    If Left(Temp$,1)="0";Sort out comments and add them to the comment list
-                      AddElement(\Header\Comments())
-                      \Header\Comments()=Right(Temp$,Len(Temp$)-1)
-                    Else
-                      AddElement(\Data\ApertureMacro(MacroName$)\Primitives())
-                      \Data\ApertureMacro(MacroName$)\Primitives()\Type=Val(StringField(Temp$,1,","))
-                      Select \Data\ApertureMacro(MacroName$)\Primitives()\Type
-                        Case #Gerber_MT_Circle
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Diameter=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          If TCount>5
-                            \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                            \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                          EndIf
-                        Case #Gerber_MT_Outline
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\StartX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\StartY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
-                          For TCounter=1 To \Data\ApertureMacro(MacroName$)\Primitives()\VertexCount
-                            AddElement(\Data\ApertureMacro(MacroName$)\Primitives()\Vertices())
-                            \Data\ApertureMacro(MacroName$)\Primitives()\Vertices()\X=ValD(StringField(Temp$,4+2*TCounter,","))*\Header\Scaling
-                            \Data\ApertureMacro(MacroName$)\Primitives()\Vertices()\Y=ValD(StringField(Temp$,5+2*TCounter,","))*\Header\Scaling
-                          Next
-                          If TCount>5+2*\Data\ApertureMacro(MacroName$)\Primitives()\VertexCount
-                            \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,6+2*ListSize(\Data\ApertureMacro(MacroName$)\Primitives()\Vertices()),","))*\Header\Scaling
-                            \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                          EndIf
-                        Case #Gerber_MT_Polygon
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Diameter=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                        Case #Gerber_MT_Thermal
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterX=ValD(StringField(Temp$,2,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterY=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\OuterDiameter=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\InnerDiameter=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Gap=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                        Case #Gerber_MT_VectorLine,#Gerber_MT_LineVector
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Width=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\StartX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\StartY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\EndX=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\EndY=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,8,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                        Case #Gerber_MT_CenterLine,#Gerber_MT_LowerLeftLine
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Width=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Height=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterX=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterY=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                        Case #Gerber_MT_Moire
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterX=ValD(StringField(Temp$,2,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CenterY=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Diameter=Val(StringField(Temp$,4,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\RingThickness=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Gap=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\VertexCount=Val(StringField(Temp$,7,","))
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CrosshairThickness=ValD(StringField(Temp$,8,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\CrosshairLength=ValD(StringField(Temp$,9,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Rotation=ValD(StringField(Temp$,10,","))*\Header\Scaling
-                          \Data\ApertureMacro(MacroName$)\Primitives()\Radian=Radian(\Data\ApertureMacro(MacroName$)\Primitives()\Rotation)
-                      EndSelect
-                    EndIf
-                  Next
-                Else
-                  AddError("Aperture-macro error: "+STemp$)
+                If ExamineRegularExpression(Gerber_RegEx_AM,RAWSTemp$) And NextRegularExpressionMatch(Gerber_RegEx_AM)
+                  MacroName$=RegularExpressionGroup(Gerber_RegEx_AM,1)
+                  ATemp$=Trim(RegularExpressionGroup(Gerber_RegEx_AM,2),"*")
+                  If FindString(ATemp$,"$")
+                    \Data\ApertureMacro(MacroName$)\VariableMacro=ATemp$
+                  Else
+                    ACount=CountString(ATemp$,"*")+1
+                    For ACounter=1 To ACount
+                      Temp$=StringField(ATemp$,ACounter,"*")
+                      TCount=CountString(Temp$,",")+1
+                      If Left(Temp$,1)="0";Sort out comments and add them to the comment list
+                        AddElement(\Header\Comments())
+                        \Header\Comments()=Right(Temp$,Len(Temp$)-1)
+                      Else
+                        AddElement(\Data\ApertureMacro(MacroName$)\Primitives())
+                        \Data\ApertureMacro()\Primitives()\Type=Val(StringField(Temp$,1,","))
+                        Select \Data\ApertureMacro()\Primitives()\Type
+                          Case #Gerber_MT_Circle
+                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+                            \Data\ApertureMacro()\Primitives()\Diameter=ValD(StringField(Temp$,3,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,4,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            If TCount>5
+                              \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,6,","))*\Header\Scaling
+                              \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                            EndIf
+                          Case #Gerber_MT_Outline
+                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+                            \Data\ApertureMacro()\Primitives()\StartX=ValD(StringField(Temp$,4,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\StartY=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
+                            For TCounter=1 To \Data\ApertureMacro()\Primitives()\VertexCount
+                              AddElement(\Data\ApertureMacro()\Primitives()\Vertices())
+                              \Data\ApertureMacro()\Primitives()\Vertices()\X=ValD(StringField(Temp$,4+2*TCounter,","))*\Header\Scaling
+                              \Data\ApertureMacro()\Primitives()\Vertices()\Y=ValD(StringField(Temp$,5+2*TCounter,","))*\Header\Scaling
+                            Next
+                            If TCount>5+2*\Data\ApertureMacro()\Primitives()\VertexCount
+                              \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,6+2*ListSize(\Data\ApertureMacro()\Primitives()\Vertices()),","))*\Header\Scaling
+                              \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                            EndIf
+                          Case #Gerber_MT_Polygon
+                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+                            \Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
+                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,4,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Diameter=ValD(StringField(Temp$,6,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                          Case #Gerber_MT_Thermal
+                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,2,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,3,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\OuterDiameter=ValD(StringField(Temp$,4,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\InnerDiameter=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Gap=ValD(StringField(Temp$,6,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                          Case #Gerber_MT_VectorLine,#Gerber_MT_LineVector
+                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+                            \Data\ApertureMacro()\Primitives()\Width=ValD(StringField(Temp$,3,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\StartX=ValD(StringField(Temp$,4,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\StartY=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\EndX=ValD(StringField(Temp$,6,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\EndY=ValD(StringField(Temp$,7,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,8,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                          Case #Gerber_MT_CenterLine,#Gerber_MT_LowerLeftLine
+                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+                            \Data\ApertureMacro()\Primitives()\Width=ValD(StringField(Temp$,3,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Height=ValD(StringField(Temp$,4,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,6,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                          Case #Gerber_MT_Moire
+                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,2,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,3,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Diameter=Val(StringField(Temp$,4,","))
+                            \Data\ApertureMacro()\Primitives()\RingThickness=ValD(StringField(Temp$,5,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Gap=ValD(StringField(Temp$,6,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,7,","))
+                            \Data\ApertureMacro()\Primitives()\CrosshairThickness=ValD(StringField(Temp$,8,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\CrosshairLength=ValD(StringField(Temp$,9,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,10,","))*\Header\Scaling
+                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
+                        EndSelect
+                      EndIf
+                    Next
+                  EndIf
                 EndIf
                 Break
                 ;}
-              ElseIf MatchRegularExpression(Gerber_RegEx_Apertures,STemp$)
+              ElseIf MatchRegularExpression(Gerber_RegEx_AD,STemp$)
                 ;{ AD -> Apertures Definition
-                If ExamineRegularExpression(Gerber_RegEx_Apertures,STemp$)
-                  While NextRegularExpressionMatch(Gerber_RegEx_Apertures)
-                    ATemp$=RegularExpressionGroup(Gerber_RegEx_Apertures,1)
-                    Select RegularExpressionGroup(Gerber_RegEx_Apertures,2)
+                If ExamineRegularExpression(Gerber_RegEx_AD,STemp$)
+                  While NextRegularExpressionMatch(Gerber_RegEx_AD)
+                    ATemp$=RegularExpressionGroup(Gerber_RegEx_AD,1)
+                    Select RegularExpressionGroup(Gerber_RegEx_AD,2)
                       Case "C"
                         \Data\Apertures(ATemp$)\Type=#Gerber_AT_Circle
-                        Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
+                        Temp$=RegularExpressionGroup(Gerber_RegEx_AD,3)
                         \Data\Apertures(ATemp$)\Diameter=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                         Select CountString(Temp$,"X")
                           Case 1
@@ -2165,7 +2170,7 @@ Module PureGerber
                         EndSelect
                       Case "R"
                         \Data\Apertures(ATemp$)\Type=#Gerber_AT_Rectangle
-                        Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
+                        Temp$=RegularExpressionGroup(Gerber_RegEx_AD,3)
                         \Data\Apertures(ATemp$)\X=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                         \Data\Apertures(ATemp$)\Y=ValD(StringField(Temp$,2,"X"))*\Header\Scaling
                         Select CountString(Temp$,"X")
@@ -2177,7 +2182,7 @@ Module PureGerber
                         EndSelect
                       Case "O"
                         \Data\Apertures(ATemp$)\Type=#Gerber_AT_Obround
-                        Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
+                        Temp$=RegularExpressionGroup(Gerber_RegEx_AD,3)
                         \Data\Apertures(ATemp$)\X=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                         \Data\Apertures(ATemp$)\Y=ValD(StringField(Temp$,2,"X"))*\Header\Scaling
                         If CountString(Temp$,"X")=2
@@ -2185,7 +2190,7 @@ Module PureGerber
                         EndIf
                       Case "P"
                         \Data\Apertures(ATemp$)\Type=#Gerber_AT_Polygon
-                        Temp$=RegularExpressionGroup(Gerber_RegEx_Apertures,3)
+                        Temp$=RegularExpressionGroup(Gerber_RegEx_AD,3)
                         \Data\Apertures(ATemp$)\X=ValD(StringField(Temp$,1,"X"))*\Header\Scaling
                         \Data\Apertures(ATemp$)\Vertex=Val(StringField(Temp$,2,"X"))
                         Select CountString(Temp$,"X")
@@ -2199,22 +2204,24 @@ Module PureGerber
                         EndSelect
                       Default
                         \Data\Apertures(ATemp$)\Type=#Gerber_AT_ApertureMacro
-                        \Data\Apertures(ATemp$)\ApertureMacro=RegularExpressionGroup(Gerber_RegEx_Apertures,2)
-                        If Not FindMapElement(\Data\ApertureMacro(),\Data\Apertures(ATemp$)\ApertureMacro)
-                          Debug "Missing Aperture macro: "+\Data\Apertures(ATemp$)\ApertureMacro
+                        Temp$=RegularExpressionGroup(Gerber_RegEx_AD,2)
+                        If FindMapElement(\Data\ApertureMacro(),Temp$)
+                          If \Data\ApertureMacro(Temp$)\VariableMacro=""
+                            \Data\Apertures(ATemp$)\ApertureMacro=Temp$
+                          Else
+                            ;Unfold AM with variables and create custom AM for this one
+                          EndIf
+                        Else
+                          Debug "Missing Aperture macro: "+Temp$
                         EndIf
                     EndSelect
                   Wend
-                Else
-                  AddError("Apertur error: "+STemp$)
                 EndIf
                 ;}
-              ElseIf MatchRegularExpression(Gerber_RegEx_Attributes,STemp$)
+              ElseIf MatchRegularExpression(Gerber_RegEx_TF,STemp$)
                 ;{ TA -> Aperture Attributes
-                If ExamineRegularExpression(Gerber_RegEx_Attributes,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_Attributes)
-                  \Header\Attributes(RegularExpressionGroup(Gerber_RegEx_Attributes,1))=RegularExpressionGroup(Gerber_RegEx_Attributes,2)
-                Else
-                  AddError("Attribute error: "+STemp$)
+                If ExamineRegularExpression(Gerber_RegEx_TF,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_TF)
+                  \Header\Attributes(RegularExpressionGroup(Gerber_RegEx_TF,1))=RegularExpressionGroup(Gerber_RegEx_TF,2)
                 EndIf
                 ;}
               ElseIf MatchRegularExpression(Gerber_RegEx_LP,STemp$)
@@ -2301,7 +2308,7 @@ Module PureGerber
               ElseIf STemp$="ICAS"
                 ;ICAS: Straight from the UCAMCO manual: "Some files contain the strange pseudo command %ICAS*%. One wonders what this is supposed To achieve. Anyhow, it is invalid."
               ElseIf STemp$="AD"
-                ;AD: Single AD...ignore
+                ;AD: Single AD...ignore (I don't know why this even exists...)
               Else
                 ;{ Ignore a lot of very long obsolete commands, otherwise generate  renderpath or add to it...or unknown command
                 If Left(STemp$,3)="SCC"
@@ -2512,8 +2519,9 @@ Module PureGerber
 EndModule
 
 ; IDE Options = PureBasic 6.10 beta 3 (Windows - x64)
-; CursorPosition = 2512
-; Folding = AAACAADAAAAAAAAAiFAAAAAAAIAOAAYAAAAEg
+; CursorPosition = 284
+; FirstLine = 60
+; Folding = CQACABAAAAAAAAAACIAAAEABBgAAAAEAAAIAg
 ; Optimizer
 ; EnableAsm
 ; EnableThread

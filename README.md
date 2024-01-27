@@ -14,7 +14,7 @@ Done:
 - Standard apertures in case of missing apertures
 - Export to SVG
 - GerberGadget based on a CanvasGadget with zoom, movement, rotation
-- all available OS, ASM and C backend
+- All available OS, ASM and C backend (tested on Windows)
 
 Missing/WIP:
 - Moire/Thermal

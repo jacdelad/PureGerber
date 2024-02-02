@@ -15,13 +15,14 @@ Done:
 - Export to SVG
 - GerberGadget based on a CanvasGadget with zoom, movement, rotation
 - All available OS, ASM and C backend (tested on Windows)
+- Simple variable support (no term calculation yet)
 
 WIP:
 - StepMode
-- Variables
+- Full variable support
 
 TBD:
 - Procesing of Metadata (attributes...)
 - PDF output
-- Moire/Thermal
+- Moire/Thermal (included, but not tested)
 - Full compatibility with Gerber RS-274X/Gerber X3

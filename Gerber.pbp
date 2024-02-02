@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.10 beta 3 (Windows - x64)">
+  <section name="config">
+    <options closefiles="1" openmode="0" name="Gerber"/>
+    <buildwindow autoclose="1"/>
+  </section>
+  <section name="data">
+    <explorer view="..\..\..\OSU-Tool\" pattern="0"/>
+    <log show="1"/>
+    <lastopen date="2024-02-02 16:24" user="jacob.liebeck" host="NER008082"/>
+  </section>
+  <section name="files">
+    <file name="Gerber.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="1" panelstate="+"/>
+      <fingerprint md5="ea3ef506b17cf6e8814ce343e65f6843"/>
+    </file>
+    <file name="PureGerber.pbi">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="2" panelstate="+"/>
+      <fingerprint md5="06824f737a795cad54c5a28c06e3b353"/>
+    </file>
+    <file name="Gerber.xml">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="0" sortindex="999" panelstate="+"/>
+      <fingerprint md5="8840c583d6d5d3559bc376b84af2b0bc"/>
+    </file>
+    <file name="DefaultApertures.pbi">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="0" sortindex="999" panelstate="+"/>
+      <fingerprint md5="b69bfa8f88f716f76ca826da873a7e3a"/>
+    </file>
+  </section>
+  <section name="targets">
+    <target name="x64" enabled="1" default="1">
+      <inputfile value="Gerber.pb"/>
+      <outputfile value="Gerber.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 (Windows - x64)"/>
+      <executable value="Gerber.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" debug="1" optimizer="1"/>
+      <purifier enable="1"/>
+      <temporaryexe value="source"/>
+      <icon enable="1">Double-J-Design-Electronics-PCB.ico</icon>
+      <format exe="default" cpu="1"/>
+      <compilecount enable="1" value="2434"/>
+      <buildcount enable="1" value="211"/>
+    </target>
+    <target name="x32" enabled="1" default="0">
+      <inputfile value="Gerber.pb"/>
+      <outputfile value="Gerberx32.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 (Windows - x86)"/>
+      <executable value="Gerberx32.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" debug="1" optimizer="1"/>
+      <purifier enable="1"/>
+      <temporaryexe value="source"/>
+      <icon enable="1">Double-J-Design-Electronics-PCB.ico</icon>
+      <format exe="default" cpu="1"/>
+      <compilecount enable="1" value="940"/>
+      <buildcount enable="1" value="211"/>
+    </target>
+    <target name="GerberChecker" enabled="1" default="0">
+      <inputfile value="GerberChecker.pb"/>
+      <outputfile value="GerberChecker.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 (Windows - x64)"/>
+      <executable value="GerberChecker.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" debug="1" optimizer="1"/>
+      <purifier enable="1"/>
+      <temporaryexe value="source"/>
+      <icon enable="1">Graphicloads-Polygon-Hands-ok-2.ico</icon>
+      <format exe="default" cpu="1"/>
+      <compilecount enable="1" value="1586"/>
+      <buildcount enable="1" value="207"/>
+    </target>
+    <target name="C x64" enabled="1" default="0">
+      <inputfile value="Gerber.pb"/>
+      <outputfile value="GerberC.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 - C Backend (Windows - x64)"/>
+      <executable value="GerberC.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" debug="1" optimizer="1"/>
+      <purifier enable="1"/>
+      <temporaryexe value="source"/>
+      <icon enable="1">Double-J-Design-Electronics-PCB.ico</icon>
+      <format exe="default" cpu="1"/>
+      <compilecount enable="1" value="937"/>
+      <buildcount enable="1" value="208"/>
+    </target>
+    <target name="C x32" enabled="1" default="0">
+      <inputfile value="Gerber.pb"/>
+      <outputfile value="GerberCx32.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 - C Backend (Windows - x86)"/>
+      <executable value="GerberCx32.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" debug="1" optimizer="1"/>
+      <purifier enable="1"/>
+      <temporaryexe value="source"/>
+      <icon enable="1">Double-J-Design-Electronics-PCB.ico</icon>
+      <format exe="default" cpu="1"/>
+      <compilecount enable="1" value="808"/>
+      <buildcount enable="1" value="208"/>
+    </target>
+    <target name="Inge" enabled="0" default="0">
+      <inputfile value="Test.pb"/>
+      <outputfile value="Test.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 (Windows - x86)"/>
+      <executable value="Test.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" optimizer="1"/>
+      <format exe="default" cpu="1"/>
+    </target>
+    <target name="IDemo" enabled="0" default="0">
+      <inputfile value="IDemo.pb"/>
+      <outputfile value="Gerber.exe"/>
+      <compiler version="PureBasic 6.10 beta 3 (Windows - x64)"/>
+      <executable value="Gerber.exe"/>
+      <options asm="1" thread="1" xpskin="1" user="1" dpiaware="1" onerror="1" debug="1" optimizer="1"/>
+      <purifier enable="1"/>
+      <temporaryexe value="source"/>
+      <icon enable="1">Double-J-Design-Electronics-PCB.ico</icon>
+      <format exe="default" cpu="1"/>
+      <compilecount enable="1" value="863"/>
+      <buildcount enable="1" value="65"/>
+    </target>
+  </section>
+</project>

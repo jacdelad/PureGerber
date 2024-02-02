@@ -8,7 +8,7 @@
 ;- Moire/Thermal
 
 ;{ PureGerber Module 1.0 WIP
-;26.01.2024
+;02.02.2024
 ;by Jac de Lad
 ;For all platforms (tested only on Windows)
 ;
@@ -34,9 +34,9 @@
 ;                  ...or visit the discussion thread: https://www.purebasic.fr/english/viewtopic.php?t=82399
 ;
 ;What is still missing:
-;- Primitives: Moire (deprecated) and Thermal (code 6 and 7)
-;- variables ($1..$n)
-;- step and repeat (SR)
+;- Primitives: Moire (deprecated) and Thermal (code 6 and 7) -> included, but untested!
+;- variables ($1..$n) -> WIP
+;- step and repeat (SR) -> WIP
 ;
 ;This module/library does not really check for errors. Faulty Gerber files may be rendered incompletely/wrongly without warning.
 ;
@@ -47,7 +47,7 @@
 ;}
 
 DeclareModule PureGerber
-  #Gerber_Version = "1.0 WIP 26.01.2024"  
+  #Gerber_Version = "1.0 WIP 02.02.2024"  
   Enumeration Gerber_FillMode
     #Gerber_FillMode_Fill        ;Fill polygons
     #Gerber_FillMode_Skeleton    ;Draw Skeleton
@@ -208,6 +208,7 @@ Module PureGerber
   #Gerber_MagicNumber = $208E0EABE50B1EC7;PureGerberObject
   #Gerber_Gadget_StandardZoom = 0.1      ;Standard zoom value on GerberGadget (±0.2*CurrentZoom)
   #Gerber_DrawScaling = 0.98             ;Inital scaling factor, 1% of space on each side by default
+  ;{ Enumerations
   Enumeration OmittedZeros
     #Gerber_OZ_No
     #Gerber_OZ_Trailing
@@ -265,7 +266,26 @@ Module PureGerber
     #Gerber_Header_Error
     #Gerber_Header_OK
   EndEnumeration
-  ;{ Create RegEx
+  Enumeration PaceID;Don't change order!
+    #Gerber_PID_Invalid
+    #Gerber_PID_Draw
+    #Gerber_PID_Color
+    #Gerber_PID_Fill
+    #Gerber_PID_End
+    #Gerber_PID_Move
+    #Gerber_PID_Line
+    #Gerber_PID_Circle
+    #Gerber_PID_Box
+    #Gerber_PID_Close
+  EndEnumeration
+  Enumeration VectorSourceColor
+    #Gerber_VSC_Background
+    #Gerber_VSC_Foreground
+    #Gerber_VSC_Fiducial
+    #Gerber_VSC_Contour
+  EndEnumeration
+  ;}
+  ;{ Regular Expressions
   Global Gerber_RegEx_AB=CreateRegularExpression(#PB_Any,"^AB(D\d+)?$")
   Global Gerber_RegEx_AD=CreateRegularExpression(#PB_Any,"^ADD(\d+)([^\,\%]+)\,?(.*)$")
   Global Gerber_RegEx_AM=CreateRegularExpression(#PB_Any,"^AM([^\*]+)\*([^\%]+)$")
@@ -284,6 +304,8 @@ Module PureGerber
   Global Gerber_RegEx_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?$")
   Global Gerber_RegEx_SR=CreateRegularExpression(#PB_Any,"^SRX(\d+)Y(\d+)I(-?\d*\.?\d*)J(-?\d*\.?\d*)$")
   Global Gerber_RegEx_TF=CreateRegularExpression(#PB_Any,"^TF\.(\w+)\,(.+)$")
+  Global Gerber_RegEx_EM_Set=CreateRegularExpression(#PB_Any,"^\$(\d+)=(.+)$")
+  Global Gerber_RegEx_EM_Var=CreateRegularExpression(#PB_Any,".*(\$\d+).*")
   Global Gerber_RegEx_Omitter=CreateRegularExpression(#PB_Any,"[XYIJ][-?\d]+")
   Global Gerber_RegEx_PreprocessX=CreateRegularExpression(#PB_Any,"X(-?\d+)")
   Global Gerber_RegEx_PreprocessY=CreateRegularExpression(#PB_Any,"Y(-?\d+)")
@@ -292,31 +314,13 @@ Module PureGerber
   Global Gerber_Command_D01=CreateRegularExpression(#PB_Any,"^([XYIJ])(-?\d+)(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?D01$")
   Global Gerber_Command_D02=CreateRegularExpression(#PB_Any,"^([XY])(-?\d*)(([XY])(-?\d*))?D02$")
   Global Gerber_Command_D03=CreateRegularExpression(#PB_Any,"^(G55)?([XY])(-?\d+)(([XY])(-?\d+))?D03$")
-  Global Gerber_Command_Single=CreateRegularExpression(#PB_Any,"^G(\d{2})$")
+  Global Gerber_Command_FollowUp=CreateRegularExpression(#PB_Any,"^([XYIJ]-?\d+){1,4}$")
   Global Gerber_Command_G01=CreateRegularExpression(#PB_Any,"^G01([XY])(-?\d+)(([XY])(-?\d+))?(D0[123])?$")
   Global Gerber_Command_G23=CreateRegularExpression(#PB_Any,"^G0[23]([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?(D01)?$")
   Global Gerber_Command_G04=CreateRegularExpression(#PB_Any,"^G04.*$")
-  Global Gerber_Command_FollowUp=CreateRegularExpression(#PB_Any,"^([XYIJ]-?\d+){1,4}$")
   Global Gerber_Command_M=CreateRegularExpression(#PB_Any,"^M(\d{2})$")
+  Global Gerber_Command_Single=CreateRegularExpression(#PB_Any,"^G(\d{2})$")
   ;}
-  Enumeration PaceID
-    #Gerber_PID_Invalid
-    #Gerber_PID_Draw
-    #Gerber_PID_Color
-    #Gerber_PID_Fill
-    #Gerber_PID_End
-    #Gerber_PID_Move
-    #Gerber_PID_Line
-    #Gerber_PID_Circle
-    #Gerber_PID_Box
-    #Gerber_PID_Close
-  EndEnumeration
-  Enumeration VectorSourceColor
-    #Gerber_VSC_Background
-    #Gerber_VSC_Foreground
-    #Gerber_VSC_Fiducial
-    #Gerber_VSC_Contour
-  EndEnumeration
   
   Structure GerberGadget
     Gerber.i
@@ -349,91 +353,27 @@ Module PureGerber
   ;{ Load default apertures
   Global NewMap DefaultApertures.Gerber_Aperture()
   
+  XIncludeFile "DefaultApertures.pbi"
   Procedure LoadDefaultApertures()
     Protected Count.i
     For Count=?DefaultApertures To ?EndDefaultApertures-4 Step 4
       If PeekW(Count)>12000
         DefaultApertures(Str(PeekW(Count)-12000))\Type=#Gerber_AT_Rectangle
-        DefaultApertures()\X=PeekW(Count+2)*0.0254;*\Header\Scaling
-        DefaultApertures()\Y=DefaultApertures()\X;*\Header\Scaling
+        DefaultApertures()\X=PeekW(Count+2)*0.0254
+        DefaultApertures()\Y=DefaultApertures()\X
       ElseIf PeekW(Count)>10000
         DefaultApertures(Str(PeekW(Count)-10000))\Type=#Gerber_AT_Circle
-        DefaultApertures()\Diameter=PeekW(Count+2)*0.0254;*\Header\Scaling
+        DefaultApertures()\Diameter=PeekW(Count+2)*0.0254
       EndIf
     Next
   EndProcedure
   LoadDefaultApertures()
+  ;}
   
+  ;{ DataSection, don't ever touch!!!
   DataSection
-    DefaultApertures:
-    Data.l      75637,    141174,    206711,    272248,    337785,    403322,    468859,    534396,    599933,    665470,    731007,    796544
-    Data.l     862081,    927618,    993155,   1058692,   1124229,   1189766,   1255303,   1320840,   1386377,   1451914,   1517451,   1582988
-    Data.l    1648525,   1714062,   1779599,   1845136,   1910673,   1976210,   2041747,   2107284,   2172821,   2238358,   2303895,   2369432
-    Data.l    2434969,   2500506,   2566043,   2631580,   2697117,   2762654,   2828191,   2893728,   2959265,   3024802,   3090339,   3155876
-    Data.l    3221413,   3286950,   3352487,   3418024,   3483561,   3549098,   9578411,   3680172,   9709485,   3811246,   9840559,   3942320
-    Data.l    9971633,   4073394,  10102707,   4204468,  10233781,   4335542,  10364855,   4466616,  10495929,   4597690,  10627003,   4728764
-    Data.l   10758077,   4859838,  10889151,   4990912,  11020225,   5121986,  11151299,   5253060,  11282373,   5384134,  11413447,   5515208
-    Data.l   11544521,   5646282,  11675595,   5777356,  11806669,   5908430,  11937743,   6039504,  12068817,   6170578,  12199891,   6301652
-    Data.l   12330965,   6432726,  12462039,   6563800,  12593113,   6694874,  12724187,   6825948,  12855261,   6957022,  12986335,   7088096
-    Data.l   13117409,   7219170,  13248483,   7350244,  13379557,   7481318,  13510631,   7612392,  13641705,   7743466,  13772779,   7874540
-    Data.l   13903853,   8005614,  14034927,   8136688,  14166001,   8267762,  14297075,   8398836,  14428149,   8529910,  14559223,   8660984
-    Data.l   14690297,   8792058,  14821371,   8923132,  14952445,   9054206,  15083519,   9185280,  15214593,   9316354,  15345667,   9447428
-    Data.l   15476741,   9578502,  15607815,   9709576,  15738889,   9840650,  15869963,   9971724,  16001037,  10102798,  16132111,  10233872
-    Data.l   16263185,  10364946,  16394259,  10496020,  16525333,  10627094,  16656407,  10758168,  16787481,  10889242,  16918555,  11020316
-    Data.l   17049629,  11151390,  17180703,  11282464,  17311777,  11413538,  17442851,  11544612,  17573925,  11675686,  17704999,  11806760
-    Data.l   17836073,  11937834,  17967147,  12068908,  18098221,  12199982,  18229295,  12331056,  18360369,  12462130,  18491443,  12593204
-    Data.l   18622517,  12724278,  18753591,  12855352,  18884665,  12986426,  19015739,  13117500,  19146813,  19212350,  19277887,  19343424
-    Data.l   19408961,  19474498,  19540035,  19605572,  19671109,  13772870,  19802183,  19867720,  19933257,  19998794,  20064331,  20129868
-    Data.l   20195405,  20260942,  20326479,  14428240,  20457553,  20523090,  20588627,  20654164,  20719701,  20785238,  20850775,  20916312
-    Data.l   20981849,  15083610,  21112923,  21178460,  21243997,  21309534,  21375071,  21440608,  21506145,  21571682,  21637219,  15738980
-    Data.l   21768293,  21833830,  21899367,  21964904,  22030441,  22095978,  22161515,  22227052,  22292589,  16394350,  22423663,  22489200
-    Data.l   22554737,  22620274,  22685811,  22751348,  22816885,  22882422,  22947959,  17049720,  23079033,  23144570,  23210107,  23275644
-    Data.l   23341181,  23406718,  23472255,  23537792,  23603329,  17705090,  23734403,  23799940,  23865477,  23931014,  23996551,  24062088
-    Data.l   24127625,  24193162,  24258699,  18360460,  24389773,  24455310,  24520847,  24586384,  24651921,  24717458,  24782995,  24848532
-    Data.l   24914069,  19015830,  25045143,  25110680,  25176217,  25241754,  25307291,  25372828,  25438365,  25503902,  25569439,  19671200
-    Data.l   25700513,  25766050,  25831587,  25897124,  25962661,  26028198,  26093735,  26159272,  26224809,  20326570,  26355883,  26421420
-    Data.l   26486957,  26552494,  26618031,  26683568,  26749105,  26814642,  26880179,  20981940,  27011253,  27076790,  27142327,  27207864
-    Data.l   27273401,  27338938,  27404475,  27470012,  27535549,  21637310,  27666623,  27732160,  27797697,  27863234,  27928771,  27994308
-    Data.l   28059845,  28125382,  28190919,  22292680,  28321993,  28387530,  28453067,  28518604,  28584141,  28649678,  28715215,  28780752
-    Data.l   28846289,  22948050,  28977363,  29042900,  29108437,  29173974,  29239511,  29305048,  29370585,  29436122,  29501659,  23603420
-    Data.l   29632733,  29698270,  29763807,  29829344,  29894881,  29960418,  30025955,  30091492,  30157029,  24258790,  30288103,  30353640
-    Data.l   30419177,  30484714,  30550251,  30615788,  30681325,  30746862,  30812399,  24914160,  30943473,  31009010,  31074547,  31140084
-    Data.l   31205621,  31271158,  31336695,  31402232,  31467769,  25569530,  31598843,  31664380,  31729917,  31795454,  31860991,  31926528
-    Data.l   31992065,  32057602,  32123139,  26224900,  32254213,  32319750,  32385287,    274648,    340185,    405722,    471259,    536796
-    Data.l     602333,    667870,    733407,    798944,    864481,    930018,    995555,   1061092,   1126629,   1192166,   1257703,   1323240
-    Data.l   33564953,   1454314,  33696027,   1585388,  33827101,   1716462,  33958175,   1847536,  34089249,   1978610,  34220323,   2109684
-    Data.l   34351397,   2240758,  34482471,   2371832,  34613545,   2502906,  34744619,   2633980,  34875693,   2765054,  35006767,   2896128
-    Data.l   35137841,   3027202,  35268915,   3158276,  35399989,   3289350,  35531063,   3420424,  35662137,   3551498,  35793211,   3682572
-    Data.l   35924285,   3813646,  36055359,   3944720,  36186433,   4075794,  36317507,   4206868,  36448581,   4337942,  36579655,   4469016
-    Data.l   36710729,   4600090,  36841803,   4731164,  36972877,   4862238,  37103951,   4993312,  37235025,   5124386,  37366099,   5255460
-    Data.l   37497173,   5386534,  37628247,   5517608,  37759321,   5648682,  37890395,   5779756,  38021469,   5910830,  38152543,   6041904
-    Data.l   38283617,   6172978,  38414691,   6304052,  38545765,   6435126,  38676839,   6566200,  38807913,   6697274,  38938987,   6828348
-    Data.l   39070061,   6959422,  39201135,   7090496,  39332209,   7221570,  39463283,   7352644,  39594357,   7483718,  39725431,   7614792
-    Data.l   39856505,   7745866,  39987579,   7876940,  40118653,   8008014,  40249727,   8139088,  40380801,   8270162,  40511875,   8401236
-    Data.l   40642949,   8532310,  40774023,   8663384,  40905097,   8794458,  41036171,   8925532,  41167245,   9056606,  41298319,   9187680
-    Data.l   41429393,   9318754,  41560467,   9449828,  41691541,   9580902,  41822615,   9711976,  41953689,   9843050,  42084763,   9974124
-    Data.l   42215837,  10105198,  42346911,  10236272,  42477985,  10367346,  42609059,  10498420,  42740133,  10629494,  42871207,  10760568
-    Data.l   43002281,  10891642,  43133355,  11022716,  43264429,  11153790,  43395503,  11284864,  43526577,  11415938,  43657651,  11547012
-    Data.l   43788725,  11678086,  43919799,  11809160,  44050873,  11940234,  44181947,  12071308,  44313021,  12202382,  44444095,  12333456
-    Data.l   44575169,  12464530,  44706243,  12595604,  44837317,  12726678,  44968391,  12857752,  45099465,  12988826,  45230539,  13119900
-    Data.l   45361613,  45427150,  45492687,  45558224,  45623761,  45689298,  45754835,  45820372,  45885909,  13775270,  46016983,  46082520
-    Data.l   46148057,  46213594,  46279131,  46344668,  46410205,  46475742,  46541279,  14430640,  46672353,  46737890,  46803427,  46868964
-    Data.l   46934501,  47000038,  47065575,  47131112,  47196649,  15086010,  47327723,  47393260,  47458797,  47524334,  47589871,  47655408
-    Data.l   47720945,  47786482,  47852019,  15741380,  47983093,  48048630,  48114167,  48179704,  48245241,  48310778,  48376315,  48441852
-    Data.l   48507389,  16396750,  48638463,  48704000,  48769537,  48835074,  48900611,  48966148,  49031685,  49097222,  49162759,  17052120
-    Data.l   49293833,  49359370,  49424907,  49490444,  49555981,  49621518,  49687055,  49752592,  49818129,  17707490,  49949203,  50014740
-    Data.l   50080277,  50145814,  50211351,  50276888,  50342425,  50407962,  50473499,  18362860,  50604573,  50670110,  50735647,  50801184
-    Data.l   50866721,  50932258,  50997795,  51063332,  51128869,  19018230,  51259943,  51325480,  51391017,  51456554,  51522091,  51587628
-    Data.l   51653165,  51718702,  51784239,  19673600,  51915313,  51980850,  52046387,  52111924,  52177461,  52242998,  52308535,  52374072
-    Data.l   52439609,  20328970,  52570683,  52636220,  52701757,  52767294,  52832831,  52898368,  52963905,  53029442,  53094979,  20984340
-    Data.l   53226053,  53291590,  53357127,  53422664,  53488201,  53553738,  53619275,  53684812,  53750349,  21639710,  53881423,  53946960
-    Data.l   54012497,  54078034,  54143571,  54209108,  54274645,  54340182,  54405719,  22295080,  54536793,  54602330,  54667867,  54733404
-    Data.l   54798941,  54864478,  54930015,  54995552,  55061089,  22950450,  55192163,  55257700,  55323237,  55388774,  55454311,  55519848
-    Data.l   55585385,  55650922,  55716459,  23605820,  55847533,  55913070,  55978607,  56044144,  56109681,  56175218,  56240755,  56306292
-    Data.l   56371829,  24261190,  56502903,  56568440,  56633977,  56699514,  56765051,  56830588,  56896125,  56961662,  57027199,  24916560
-    Data.l   57158273,  57223810,  57289347,  57354884,  57420421,  57485958,  57551495,  57617032,  57682569,  25571930,  57813643,  57879180
-    Data.l   57944717,  58010254,  58075791,  58141328,  58206865,  58272402,  58337939,  26227300
-    EndDefaultApertures:
+    PaceIDs:
+    Data.a 1,13,5,5,1,21,21,45,37,1
   EndDataSection
   ;}
   
@@ -799,14 +739,13 @@ Module PureGerber
   
   ;{ Internal plotting functions (for creating the cache)
   Procedure DrawPrimitives(*AMacro.Gerber_AM,*Position.Pos,*Gerber.Gerber,List CacheList.Gerber_Pace())
-    Protected Orig.Pos,Rot.d,Count.w,Len.d,NX.d,NY.d,GMode.a=0,Aperture.s="",Pos1.Pos,Pos2.Pos,Pos3.Pos,Pos4.Pos,G36.a=#True
+    Protected Orig.Pos,Rot.d,Count.w,Len.d,NX.d,NY.d,GMode.a=0,Aperture.s="",Pos1.Pos,Pos2.Pos,Pos3.Pos,Pos4.Pos,G36.a=#True,Temp.a
     With *AMacro
       ForEach \Primitives()
         MovePathCursor(*Position\X,*Position\Y,#PB_Path_Default)
         Select \Primitives()\Type
-            ;Case #Gerber_MT_Comment
-            ;{ Comments already sorted out
-            ;}
+          Case #Gerber_MT_Comment
+            ;  Comments already sorted out
           Case #Gerber_MT_Circle
             ;{ 1, Circle
             Len=Pow(Pow(\Primitives()\CenterX,2)+Pow(\Primitives()\CenterY,2),0.5)
@@ -854,13 +793,54 @@ Module PureGerber
             AddPathLine(Pos1\X,Pos1\Y,#PB_Path_Default)
             ;}
           Case #Gerber_MT_Moire
-            ;6 (deprecated in 2021)
-            Debug "Primitive ignored: Moire"
+            ;{ 6 (deprecated in 2021)
+            Debug "Moire (needs verification!)"
+            DrawGerber(*Position)
+            Rot=ATan2(\Primitives()\CenterX,\Primitives()\CenterY)+\Primitives()\Radian
+            If \Primitives()\CrosshairLength>0 And \Primitives()\CrosshairThickness>0
+              MovePathCursor(*Position\X+(\Primitives()\CenterX-\Primitives()\CrosshairLength/2)**Gerber\Data\ScaleFactor*Cos(Rot),(*Position\Y+\Primitives()\CenterY)**Gerber\Data\ScaleFactor*Sin(Rot),#PB_Path_Default)
+              AddPathLine(\Primitives()\CrosshairLength*Cos(Rot)**Gerber\Data\ScaleFactor,0,#PB_Path_Relative)
+              MovePathCursor(*Position\X+(\Primitives()\CenterX)**Gerber\Data\ScaleFactor*Cos(Rot),(*Position\Y+\Primitives()\CenterY-\Primitives()\CrosshairLength/2)**Gerber\Data\ScaleFactor*Sin(Rot),#PB_Path_Default)
+              AddPathLine(0,\Primitives()\CrosshairLength*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Relative)
+              StrokePath(\Primitives()\CrosshairThickness**Gerber\Data\ScaleFactor,#PB_Path_Default)
+            EndIf
+            AddPathCircle(*Position\X+\Primitives()\CenterX*Cos(Rot)**Gerber\Data\ScaleFactor,*Position\Y+\Primitives()\CenterY*Sin(Rot)**Gerber\Data\ScaleFactor,\Primitives()\RingThickness**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
+            Len=0
+            For Count=0 To \Primitives()\VertexCount
+              If (\Primitives()\Diameter-Count*(\Primitives()\RingThickness+\Primitives()\Gap))**Gerber\Data\ScaleFactor<=0
+                Break
+              ElseIf (\Primitives()\Diameter-Count*(\Primitives()\RingThickness+\Primitives()\Gap))**Gerber\Data\ScaleFactor<\Primitives()\RingThickness/2
+                Len=(\Primitives()\Diameter-Count*(\Primitives()\RingThickness+\Primitives()\Gap)+\Primitives()\RingThickness/2)**Gerber\Data\ScaleFactor
+                Break
+              Else
+                AddPathCircle(*Position\X+(\Primitives()\CenterX*Cos(Rot)**Gerber\Data\ScaleFactor),*Position\Y+(\Primitives()\CenterY*Sin(Rot)**Gerber\Data\ScaleFactor),(\Primitives()\Diameter-Count*(\Primitives()\RingThickness+\Primitives()\Gap))**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
+              EndIf
+            Next
+            StrokePath(\Primitives()\RingThickness**Gerber\Data\ScaleFactor,#PB_Path_Default)
+            If Len<>0
+              AddPathCircle(*Position\X+(\Primitives()\CenterX*Cos(Rot)**Gerber\Data\ScaleFactor),*Position\Y+(\Primitives()\CenterY*Sin(Rot)**Gerber\Data\ScaleFactor),Len,0,360,#PB_Path_Default)
+              FillPath(#PB_Path_Default)
+            EndIf
+            ;}
           Case #Gerber_MT_Thermal
-            ;7
-            Debug "Primitive ignored: Thermal (annulus)"
+            ;{ 7, Thermal/Annulus
+            ;Ungünstig, wenn bereits Zeug unter dem Thermal ist. Neues Rendering angedacht!
+            Debug "Moire (needs verification!)"
+            Rot=ATan2(\Primitives()\CenterX,\Primitives()\CenterY)+\Primitives()\Radian
+            DrawGerber(*Position)
+            AddPathCircle(*Position\X+\Primitives()\CenterX**Gerber\Data\ScaleFactor*Cos(Rot),*Position\Y+\Primitives()\CenterY**Gerber\Data\ScaleFactor*Sin(Rot),(\Primitives()\OuterDiameter+\Primitives()\InnerDiameter)/2**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
+            StrokePath((\Primitives()\OuterDiameter-\Primitives()\InnerDiameter)**Gerber\Data\ScaleFactor,#PB_Path_Default)
+            MovePathCursor(*Position\X+(\Primitives()\CenterX-\Primitives()\OuterDiameter/2)**Gerber\Data\ScaleFactor*Cos(Rot),(*Position\Y+\Primitives()\CenterY)**Gerber\Data\ScaleFactor*Sin(Rot),#PB_Path_Default)
+            AddPathLine(\Primitives()\OuterDiameter*Cos(Rot)**Gerber\Data\ScaleFactor,0,#PB_Path_Relative)
+            MovePathCursor(*Position\X+(\Primitives()\CenterX)**Gerber\Data\ScaleFactor*Cos(Rot),(*Position\Y+\Primitives()\CenterY-\Primitives()\OuterDiameter/2)**Gerber\Data\ScaleFactor*Sin(Rot),#PB_Path_Default)
+            AddPathLine(0,\Primitives()\OuterDiameter*Sin(Rot)**Gerber\Data\ScaleFactor,#PB_Path_Relative)
+            Temp=*Gerber\Data\Polarity
+            *Gerber\Data\Polarity=#Gerber_Polarity_Clear
+            StrokePath(\Primitives()\Gap**Gerber\Data\ScaleFactor)
+            *Gerber\Data\Polarity=Temp
+            ;}
           Case #Gerber_MT_CenterLine
-            ;{ 21, Line with center point, thickness and width (basically a rectangle) (needs verification!)
+            ;{ 21, Line with center point, thickness and width (basically a rectangle)
             Pos1\X=\Primitives()\CenterX-0.5*\Primitives()\Width
             Pos1\Y=\Primitives()\CenterY-0.5*\Primitives()\Height
             Pos2\X=Pos1\X+\Primitives()\Width
@@ -880,7 +860,7 @@ Module PureGerber
             AddPathLine(Pos1\X,Pos1\Y,#PB_Path_Default)
             ;}
           Case #Gerber_MT_LowerLeftLine
-            ;{ 22 (deprecated in 2015), Rectangle with start point, width and height (needs verification!)
+            ;{ 22 (deprecated in 2015), Rectangle with start point, width and height
             Debug "LowerLeftLine (needs verification!)"
             Pos1\X=\Primitives()\CenterX
             Pos1\Y=\Primitives()\CenterY
@@ -1838,22 +1818,23 @@ Module PureGerber
   EndMacro
   Macro GetListSize(MyList,MyVar)
     ForEach MyList
-      Select MyList\ID
-        Case #Gerber_PID_Box
-          MyVar+37
-        Case #Gerber_PID_Circle
-          MyVar+45
-        Case #Gerber_PID_Close
-          MyVar+1
-        Case #Gerber_PID_Color
-          MyVar+5
-        Case #Gerber_PID_Draw
-          MyVar+13
-        Case #Gerber_PID_Fill
-          MyVar+5
-        Case #Gerber_PID_Line,#Gerber_PID_Move
-          MyVar+21
-      EndSelect
+      ;       Select MyList\ID
+      ;         Case #Gerber_PID_Box
+      ;           MyVar+37
+      ;         Case #Gerber_PID_Circle
+      ;           MyVar+45
+      ;         Case #Gerber_PID_Close,#Gerber_PID_Invalid,#Gerber_PID_End
+      ;           MyVar+1
+      ;         Case #Gerber_PID_Color
+      ;           MyVar+5
+      ;         Case #Gerber_PID_Draw
+      ;           MyVar+13
+      ;         Case #Gerber_PID_Fill
+      ;           MyVar+5
+      ;         Case #Gerber_PID_Line,#Gerber_PID_Move
+      ;           MyVar+21
+      ;       EndSelect
+      MyVar+PeekA(?PaceIDs+MyList\ID)
     Next
   EndMacro
   Macro InsertList(MyList)
@@ -1894,6 +1875,15 @@ Module PureGerber
           Pos+21
       EndSelect
     Next
+  EndMacro
+  Macro SelectElementSafe(MyList,MyElement)
+    If MyElement>ListSize(MyList)
+      LastElement(MyList)
+      While ListSize(MyList)<=MyElement
+        AddElement(MyList)
+      Wend
+    EndIf
+    SelectElement(MyList,MyElement)
   EndMacro
   Procedure CreatePureGerber(*Gerber.Gerber,Flags=#Gerber_PGF_All);Returns a PureGerber object (size via MemorySize(*Memory))
     #HeaderSize=61
@@ -1942,9 +1932,148 @@ Module PureGerber
     ProcedureReturn #False
   EndProcedure
   
+  Macro GenerateMacro()
+    ACount=CountString(ATemp$,"*")+1
+    For ACounter=1 To ACount
+      Temp$=StringField(ATemp$,ACounter,"*")
+      If Left(Temp$,1)="0";Sort out comments and add them to the comment list
+        AddElement(*Gerber\Header\Comments())
+        *Gerber\Header\Comments()=Right(Temp$,Len(Temp$)-1)
+      Else
+        AddElement(*Gerber\Data\ApertureMacro(MacroName$)\Primitives())
+        *Gerber\Data\ApertureMacro()\Primitives()\Type=Val(StringField(Temp$,1,","))
+        Select *Gerber\Data\ApertureMacro()\Primitives()\Type
+          Case #Gerber_MT_Circle
+            *Gerber\Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\Diameter=ValD(StringField(Temp$,3,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,4,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            If CountString(Temp$,",")>4
+              *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,6,","));**Gerber\Header\Scaling
+              *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+            EndIf
+          Case #Gerber_MT_Outline
+            *Gerber\Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\StartX=ValD(StringField(Temp$,4,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\StartY=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
+            For TCounter=1 To *Gerber\Data\ApertureMacro()\Primitives()\VertexCount
+              AddElement(*Gerber\Data\ApertureMacro()\Primitives()\Vertices())
+              *Gerber\Data\ApertureMacro()\Primitives()\Vertices()\X=ValD(StringField(Temp$,4+2*TCounter,","))**Gerber\Header\Scaling
+              *Gerber\Data\ApertureMacro()\Primitives()\Vertices()\Y=ValD(StringField(Temp$,5+2*TCounter,","))**Gerber\Header\Scaling
+            Next
+            If CountString(Temp$,",")>4+2**Gerber\Data\ApertureMacro()\Primitives()\VertexCount
+              *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,6+2*ListSize(*Gerber\Data\ApertureMacro()\Primitives()\Vertices()),","));**Gerber\Header\Scaling
+              *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+            EndIf
+          Case #Gerber_MT_Polygon
+            *Gerber\Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,4,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Diameter=ValD(StringField(Temp$,6,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","));**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+          Case #Gerber_MT_Thermal
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,2,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,3,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\OuterDiameter=ValD(StringField(Temp$,4,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\InnerDiameter=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Gap=ValD(StringField(Temp$,6,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","));**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+          Case #Gerber_MT_VectorLine,#Gerber_MT_LineVector
+            *Gerber\Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\Width=ValD(StringField(Temp$,3,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\StartX=ValD(StringField(Temp$,4,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\StartY=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\EndX=ValD(StringField(Temp$,6,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\EndY=ValD(StringField(Temp$,7,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,8,","));**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+          Case #Gerber_MT_CenterLine,#Gerber_MT_LowerLeftLine
+            *Gerber\Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\Width=ValD(StringField(Temp$,3,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Height=ValD(StringField(Temp$,4,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,6,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","));**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+          Case #Gerber_MT_Moire
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,2,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,3,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Diameter=Val(StringField(Temp$,4,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\RingThickness=ValD(StringField(Temp$,5,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Gap=ValD(StringField(Temp$,6,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,7,","))
+            *Gerber\Data\ApertureMacro()\Primitives()\CrosshairThickness=ValD(StringField(Temp$,8,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\CrosshairLength=ValD(StringField(Temp$,9,","))**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,10,","));**Gerber\Header\Scaling
+            *Gerber\Data\ApertureMacro()\Primitives()\Radian=Radian(*Gerber\Data\ApertureMacro()\Primitives()\Rotation)
+        EndSelect
+      EndIf
+    Next
+  EndMacro
+  
+  Procedure.d CalculateTerm(Term$,List Var.d())
+    Protected Mid$,Mid.l,Find.l
+    While ExamineRegularExpression(Gerber_RegEx_EM_Var,Term$) And NextRegularExpressionMatch(Gerber_RegEx_EM_Var)
+      Find=RegularExpressionGroupPosition(Gerber_RegEx_EM_Var,1)
+      Mid$=RegularExpressionGroup(Gerber_RegEx_EM_Var,1)
+      Mid=Val(Mid(Mid$,2))
+      If Mid<1 Or Mid>=ListSize(Var())
+        Term$=Left(Term$,Find-1)+"0"+Mid(Term$,Find+Len(Mid$))
+      Else
+        SelectElement(Var(),Mid)
+        Term$=Left(Term$,Find-1)+StrD(Var())+Mid(Term$,Find+Len(Mid$))
+      EndIf
+    Wend
+    ;Term korrekt berechnen
+    ProcedureReturn ValD(Term$)
+  EndProcedure
+  
+  Procedure.s CreateCustomMacro(VarDef$,MacDef$,ExpandCounter.l,*Gerber.Gerber)
+    Protected NewList Var.d(),Count.w,Temp$,Part$,Pos.w,Output$,ATemp$,ACount,ACounter,MacroName$="Expanded_"+Str(ExpandCounter),TCounter.l
+    AddElement(Var())
+    For Count=1 To CountString(VarDef$,"X")+1
+      AddElement(Var())
+      Var()=ValD(StringField(VarDef$,Count,"X"))
+    Next
+    With *Gerber
+      MacDef$=Trim(MacDef$,"*");Necessary?
+      For Count=1 To CountString(MacDef$,"*")+1
+        Temp$=ReplaceString(StringField(MacDef$,Count,"*")," ","")
+        If Temp$<>""
+          If MatchRegularExpression(Gerber_RegEx_EM_Set,Temp$)
+            If ExamineRegularExpression(Gerber_RegEx_EM_Set,Temp$) And NextRegularExpressionMatch(Gerber_RegEx_EM_Set)
+              Pos=Val(RegularExpressionGroup(Gerber_RegEx_EM_Set,1))
+              SelectElementSafe(Var(),Pos)
+              Var()=CalculateTerm(RegularExpressionGroup(Gerber_RegEx_EM_Set,2),Var())
+            EndIf
+          Else
+            Output$=""
+            For Pos=1 To CountString(Temp$,",")+1
+              Part$=StringField(Temp$,Pos,",")
+              If FindString(Part$,"$")
+                Output$+StrD(CalculateTerm(Part$,Var()))+","
+              Else
+                Output$+Part$+","
+              EndIf
+            Next
+            Output$=Left(Output$,Len(Output$)-1)
+          EndIf
+        EndIf
+        ATemp$+Output$+"*"
+      Next
+      ATemp$=Trim(ATemp$,"*")
+      GenerateMacro()
+    EndWith
+    ProcedureReturn MacroName$
+  EndProcedure
+  
   Procedure CreateGerberDataFromString(Gerber$)
-    Protected Tick.q=ElapsedMilliseconds(),CallbackTick.q=Tick+CallbackTimeout,MacroName$,STemp$,Temp$,PCount.l,PCounter.l,Counter.l,TCount.l,TCounter.l,ACount.l,ATemp$,ACounter.l,*Gerber.Gerber,Position.Pos,Image.i,Dim Out$(0),sum.a,count
-    Protected Dim Split$(0),NewList BlockStack.s(),Pos.l,Max.l,Dim Path.s(0),RAWSTemp$,Multi.l,MultiMax.l
+    Protected Tick.q=ElapsedMilliseconds(),CallbackTick.q=Tick+CallbackTimeout,MacroName$,STemp$,Temp$,PCount.l,PCounter.l,Counter.l,TCounter.l,ACount.l,ATemp$,ACounter.l,*Gerber.Gerber,Position.Pos,Image.i,Dim Out$(0),sum.a,count
+    Protected Dim Split$(0),NewList BlockStack.s(),Pos.l,Max.l,Dim Path.s(0),RAWSTemp$,Multi.l,MultiMax.l,ExpandCounter.l
     If *Callback
       CallFunctionFast(*Callback,0,1)
     EndIf
@@ -2066,90 +2195,10 @@ Module PureGerber
                   If FindString(ATemp$,"$")
                     \Data\ApertureMacro(MacroName$)\VariableMacro=ATemp$
                   Else
-                    ACount=CountString(ATemp$,"*")+1
-                    For ACounter=1 To ACount
-                      Temp$=StringField(ATemp$,ACounter,"*")
-                      TCount=CountString(Temp$,",")+1
-                      If Left(Temp$,1)="0";Sort out comments and add them to the comment list
-                        AddElement(\Header\Comments())
-                        \Header\Comments()=Right(Temp$,Len(Temp$)-1)
-                      Else
-                        AddElement(\Data\ApertureMacro(MacroName$)\Primitives())
-                        \Data\ApertureMacro()\Primitives()\Type=Val(StringField(Temp$,1,","))
-                        Select \Data\ApertureMacro()\Primitives()\Type
-                          Case #Gerber_MT_Circle
-                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                            \Data\ApertureMacro()\Primitives()\Diameter=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            If TCount>5
-                              \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                              \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                            EndIf
-                          Case #Gerber_MT_Outline
-                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                            \Data\ApertureMacro()\Primitives()\StartX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\StartY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
-                            For TCounter=1 To \Data\ApertureMacro()\Primitives()\VertexCount
-                              AddElement(\Data\ApertureMacro()\Primitives()\Vertices())
-                              \Data\ApertureMacro()\Primitives()\Vertices()\X=ValD(StringField(Temp$,4+2*TCounter,","))*\Header\Scaling
-                              \Data\ApertureMacro()\Primitives()\Vertices()\Y=ValD(StringField(Temp$,5+2*TCounter,","))*\Header\Scaling
-                            Next
-                            If TCount>5+2*\Data\ApertureMacro()\Primitives()\VertexCount
-                              \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,6+2*ListSize(\Data\ApertureMacro()\Primitives()\Vertices()),","))*\Header\Scaling
-                              \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                            EndIf
-                          Case #Gerber_MT_Polygon
-                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                            \Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,3,","))
-                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Diameter=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                          Case #Gerber_MT_Thermal
-                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,2,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\OuterDiameter=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\InnerDiameter=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Gap=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                          Case #Gerber_MT_VectorLine,#Gerber_MT_LineVector
-                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                            \Data\ApertureMacro()\Primitives()\Width=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\StartX=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\StartY=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\EndX=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\EndY=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,8,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                          Case #Gerber_MT_CenterLine,#Gerber_MT_LowerLeftLine
-                            \Data\ApertureMacro()\Primitives()\Exposure=Val(StringField(Temp$,2,","))
-                            \Data\ApertureMacro()\Primitives()\Width=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Height=ValD(StringField(Temp$,4,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,7,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                          Case #Gerber_MT_Moire
-                            \Data\ApertureMacro()\Primitives()\CenterX=ValD(StringField(Temp$,2,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CenterY=ValD(StringField(Temp$,3,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Diameter=Val(StringField(Temp$,4,","))
-                            \Data\ApertureMacro()\Primitives()\RingThickness=ValD(StringField(Temp$,5,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Gap=ValD(StringField(Temp$,6,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\VertexCount=Val(StringField(Temp$,7,","))
-                            \Data\ApertureMacro()\Primitives()\CrosshairThickness=ValD(StringField(Temp$,8,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\CrosshairLength=ValD(StringField(Temp$,9,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Rotation=ValD(StringField(Temp$,10,","))*\Header\Scaling
-                            \Data\ApertureMacro()\Primitives()\Radian=Radian(\Data\ApertureMacro()\Primitives()\Rotation)
-                        EndSelect
-                      EndIf
-                    Next
+                    GenerateMacro()
                   EndIf
+                  Break
                 EndIf
-                Break
                 ;}
               ElseIf MatchRegularExpression(Gerber_RegEx_AD,STemp$)
                 ;{ AD -> Apertures Definition
@@ -2209,7 +2258,8 @@ Module PureGerber
                           If \Data\ApertureMacro(Temp$)\VariableMacro=""
                             \Data\Apertures(ATemp$)\ApertureMacro=Temp$
                           Else
-                            ;Unfold AM with variables and create custom AM for this one
+                            ExpandCounter+1
+                            \Data\Apertures(ATemp$)\ApertureMacro=CreateCustomMacro(RegularExpressionGroup(Gerber_RegEx_AD,3),\Data\ApertureMacro(Temp$)\VariableMacro,ExpandCounter,*Gerber)
                           EndIf
                         Else
                           Debug "Missing Aperture macro: "+Temp$
@@ -2519,9 +2569,8 @@ Module PureGerber
 EndModule
 
 ; IDE Options = PureBasic 6.10 beta 3 (Windows - x64)
-; CursorPosition = 284
-; FirstLine = 60
-; Folding = CQACABAAAAAAAAAACIAAAEABBgAAAAEAAAIAg
+; CursorPosition = 10
+; Folding = BQAGAAEAAAAAAgBIkBCAAAAQQAIA3dAwBAAABA9
 ; Optimizer
 ; EnableAsm
 ; EnableThread

@@ -1,14 +1,14 @@
 ﻿;ToDo:
-;- Variablen (Punktrechnung vor Strichrechnung!!!)
 ;- Step-Modus
 ;- Fix für Zoom/Bewegung bei Rotation
 ;- Mehrere Map-Zugriffe nacheinander ohne erneutes Hashing
 ;- PDF-Ausgabe
-;- SVG-Ausgabe korrigieren (Zoom-Faktor, minimal kleiner skalieren...)
-;- Moire/Thermal
+;- SVG-Ausgabe korrigieren (Skalierung korrekt berechnen...)
+;- Moire/Thermal testen
+;- Terme testen
 
 ;{ PureGerber Module 1.0 WIP
-;02.02.2024
+;05.02.2024
 ;by Jac de Lad
 ;For all platforms (tested only on Windows)
 ;
@@ -35,7 +35,7 @@
 ;
 ;What is still missing:
 ;- Primitives: Moire (deprecated) and Thermal (code 6 and 7) -> included, but untested!
-;- variables ($1..$n) -> WIP
+;- variables ($1..$n) -> needs tests
 ;- step and repeat (SR) -> WIP
 ;
 ;This module/library does not really check for errors. Faulty Gerber files may be rendered incompletely/wrongly without warning.
@@ -47,7 +47,7 @@
 ;}
 
 DeclareModule PureGerber
-  #Gerber_Version = "1.0 WIP 02.02.2024"  
+  #Gerber_Version = "1.0 WIP 05.02.2024"  
   Enumeration Gerber_FillMode
     #Gerber_FillMode_Fill        ;Fill polygons
     #Gerber_FillMode_Skeleton    ;Draw Skeleton
@@ -208,6 +208,7 @@ Module PureGerber
   #Gerber_MagicNumber = $208E0EABE50B1EC7;PureGerberObject
   #Gerber_Gadget_StandardZoom = 0.1      ;Standard zoom value on GerberGadget (±0.2*CurrentZoom)
   #Gerber_DrawScaling = 0.98             ;Inital scaling factor, 1% of space on each side by default
+  
   ;{ Enumerations
   Enumeration OmittedZeros
     #Gerber_OZ_No
@@ -284,7 +285,21 @@ Module PureGerber
     #Gerber_VSC_Fiducial
     #Gerber_VSC_Contour
   EndEnumeration
-  ;}
+  Enumeration ShuntYardType
+    #Gerber_ShuntYardType_Op
+    #Gerber_ShuntYardType_Value
+  EndEnumeration
+  Enumeration ShuntYardPrecedence
+    #Gerber_ShuntYardPrecedence_0
+    #Gerber_ShuntYardPrecedence_1
+  EndEnumeration
+  Enumeration ShuntYardOperator
+    #Gerber_ShuntYardOperator_Add
+    #Gerber_ShuntYardOperator_Substract
+    #Gerber_ShuntYardOperator_Times
+    #Gerber_ShuntYardOperator_Divide
+  EndEnumeration
+;}
   ;{ Regular Expressions
   Global Gerber_RegEx_AB=CreateRegularExpression(#PB_Any,"^AB(D\d+)?$")
   Global Gerber_RegEx_AD=CreateRegularExpression(#PB_Any,"^ADD(\d+)([^\,\%]+)\,?(.*)$")
@@ -304,7 +319,9 @@ Module PureGerber
   Global Gerber_RegEx_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?$")
   Global Gerber_RegEx_SR=CreateRegularExpression(#PB_Any,"^SRX(\d+)Y(\d+)I(-?\d*\.?\d*)J(-?\d*\.?\d*)$")
   Global Gerber_RegEx_TF=CreateRegularExpression(#PB_Any,"^TF\.(\w+)\,(.+)$")
+  Global Gerber_RegEx_EM_IsTerm=CreateRegularExpression(#PB_Any,"\+|\-|x|\/")
   Global Gerber_RegEx_EM_Set=CreateRegularExpression(#PB_Any,"^\$(\d+)=(.+)$")
+  Global Gerber_RegEx_EM_Value=CreateRegularExpression(#PB_Any,"$([\+\-]?\d+(\.\d+)?)")
   Global Gerber_RegEx_EM_Var=CreateRegularExpression(#PB_Any,".*(\$\d+).*")
   Global Gerber_RegEx_Omitter=CreateRegularExpression(#PB_Any,"[XYIJ][-?\d]+")
   Global Gerber_RegEx_PreprocessX=CreateRegularExpression(#PB_Any,"X(-?\d+)")
@@ -321,7 +338,7 @@ Module PureGerber
   Global Gerber_Command_M=CreateRegularExpression(#PB_Any,"^M(\d{2})$")
   Global Gerber_Command_Single=CreateRegularExpression(#PB_Any,"^G(\d{2})$")
   ;}
-  
+  ;{ Structures
   Structure GerberGadget
     Gerber.i
     X.l
@@ -346,6 +363,11 @@ Module PureGerber
     Position.Pos
     Aperture.s
   EndStructure
+  Structure ShuntYard
+    Operator.a
+    Precedency.a
+  EndStructure
+  ;}
   
   UseLZMAPacker()
   Global NewMap GerberList.i(),*Callback,CallbackTimeout.l,DefaultBackgroundColor.l
@@ -2015,21 +2037,105 @@ Module PureGerber
     Next
   EndMacro
   
+  Macro ClearOpStack()
+    Repeat
+      LastElement(Output())
+      El=Output()
+      DeleteElement(Output())
+      
+      Select OpStack()\Operator
+        Case #Gerber_ShuntYardOperator_Times
+          Output()=Output()*El
+        Case #Gerber_ShuntYardOperator_Divide
+          Output()=Output()/El
+        Case #Gerber_ShuntYardOperator_Add
+          Output()=Output()+El
+        Case #Gerber_ShuntYardOperator_Substract
+          Output()=Output()-El
+      EndSelect
+      
+      DeleteElement(OpStack())
+    Until ListSize(Opstack())=0
+  EndMacro
+  Macro ExtractNumber()
+    If ExamineRegularExpression(Gerber_RegEx_EM_Value,Term$) And NextRegularExpressionMatch(Gerber_RegEx_EM_Value)
+      AddElement(Output())
+      Output()=ValD(RegularExpressionGroup(Gerber_RegEx_EM_Value,1))
+      Term$=Mid(Term$,Len(RegularExpressionGroup(Gerber_RegEx_EM_Value,1))+1)
+      LastOp=#Gerber_ShuntYardType_Value
+    Else
+      ;Fehler
+    EndIf
+  EndMacro
+  
   Procedure.d CalculateTerm(Term$,List Var.d())
-    Protected Mid$,Mid.l,Find.l
+    Protected Mid$,Mid.l,Find.l,Negate.b
     While ExamineRegularExpression(Gerber_RegEx_EM_Var,Term$) And NextRegularExpressionMatch(Gerber_RegEx_EM_Var)
       Find=RegularExpressionGroupPosition(Gerber_RegEx_EM_Var,1)
       Mid$=RegularExpressionGroup(Gerber_RegEx_EM_Var,1)
       Mid=Val(Mid(Mid$,2))
+      
+      If (Find=2 And Mid(Term$,1)="-") Or (Find>2 And Mid(Term$,Find-1)="-" And FindString("+-x/",Mid(Term$,Find-2,1)))
+        Negate=-1
+      Else
+        Negate=1
+      EndIf
+      
       If Mid<1 Or Mid>=ListSize(Var())
         Term$=Left(Term$,Find-1)+"0"+Mid(Term$,Find+Len(Mid$))
       Else
         SelectElement(Var(),Mid)
-        Term$=Left(Term$,Find-1)+StrD(Var())+Mid(Term$,Find+Len(Mid$))
+        Term$=Left(Term$,Find-1)+StrD(Negate*Var())+Mid(Term$,Find+Len(Mid$))
       EndIf
     Wend
-    ;Term korrekt berechnen
-    ProcedureReturn ValD(Term$)
+    
+    If MatchRegularExpression(Gerber_RegEx_EM_IsTerm,Mid(Term$,2))
+      Protected Element.ShuntYard,NewList OpStack.ShuntYard(),NewList Output.d(),Pos.l,Length.l,LastOp.a=#Gerber_ShuntYardType_Op,El.d
+      Repeat
+        Select Left(Term$,1)
+          Case "x"
+            AddElement(OpStack())
+            OpStack()\Precedency=#Gerber_ShuntYardPrecedence_1
+            OpStack()\Operator=#Gerber_ShuntYardOperator_Times
+            LastOp=#Gerber_ShuntYardType_Op
+          Case "/"
+            AddElement(OpStack())
+            OpStack()\Precedency=#Gerber_ShuntYardPrecedence_1
+            OpStack()\Operator=#Gerber_ShuntYardOperator_Divide
+            LastOp=#Gerber_ShuntYardType_Op
+          Case "+"
+            If LastOp=#Gerber_ShuntYardType_Op
+              ExtractNumber()
+            Else
+              If ListSize(OpStack()) And OpStack()\Precedency>#Gerber_ShuntYardPrecedence_0
+                ClearOpStack()
+              EndIf
+              AddElement(OpStack())
+              OpStack()\Precedency=#Gerber_ShuntYardPrecedence_0
+              OpStack()\Operator=#Gerber_ShuntYardOperator_Add
+              LastOp=#Gerber_ShuntYardType_Op
+            EndIf
+          Case "-"
+            If LastOp=#Gerber_ShuntYardType_Op
+              ExtractNumber()
+            Else
+              If ListSize(OpStack()) And OpStack()\Precedency>#Gerber_ShuntYardPrecedence_0
+                ClearOpStack()
+              EndIf
+              AddElement(OpStack())
+              OpStack()\Precedency=#Gerber_ShuntYardPrecedence_0
+              OpStack()\Operator=#Gerber_ShuntYardOperator_Substract
+              LastOp=#Gerber_ShuntYardType_Op
+            EndIf
+          Default
+            ExtractNumber()
+        EndSelect
+      Until Term$=""
+      ProcedureReturn Output()
+    Else
+      ProcedureReturn ValD(Term$)
+    EndIf
+    
   EndProcedure
   
   Procedure.s CreateCustomMacro(VarDef$,MacDef$,ExpandCounter.l,*Gerber.Gerber)
@@ -2082,6 +2188,7 @@ Module PureGerber
     With *Gerber
       GerberList(Str(*Gerber))=1
       \Mutex=CreateMutex()
+      \Data\Polarity=#Gerber_Polarity_Dark
       \DrawScaling=#Gerber_DrawScaling
       \Min\X=#MAXLONG:\Min\Y=#MAXLONG
       \Max\X=-#MAXLONG:\Max\Y=-#MAXLONG
@@ -2570,7 +2677,7 @@ EndModule
 
 ; IDE Options = PureBasic 6.10 beta 3 (Windows - x64)
 ; CursorPosition = 10
-; Folding = BQAGAAEAAAAAAgBIkBCAAAAQQAIA3dAwBAAABA9
+; Folding = DAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAg
 ; Optimizer
 ; EnableAsm
 ; EnableThread

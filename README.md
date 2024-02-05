@@ -19,10 +19,10 @@ Done:
 
 WIP:
 - StepMode
-- Full variable support
 
 TBD:
 - Procesing of Metadata (attributes...)
+- Moire/Thermal (included, but not fully tested)
+- Formula calculation (included, but not fully tested)
+-> Full compatibility with Gerber RS-274X/Gerber X3
 - PDF output
-- Moire/Thermal (included, but not tested)
-- Full compatibility with Gerber RS-274X/Gerber X3

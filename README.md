@@ -21,10 +21,12 @@ Done:
 WIP:
 - StepMode
 
+Needs testing:
+- Moire/Thermal/Polygon
+- Formula calculation
+
 TBD:
 - Procesing of Metadata (attributes...)
-- Moire/Thermal (included, but not fully tested)
-- Formula calculation (included, but not fully tested)
 - Full compatibility with Gerber RS-274X/Gerber X3
 - PDF output
 

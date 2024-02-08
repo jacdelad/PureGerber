@@ -16,6 +16,7 @@ Done:
 - GerberGadget based on a CanvasGadget with zoom, movement, rotation
 - All available OS, ASM and C backend (tested on Windows)
 - Simple variable support (no term calculation yet)
+- G74 support (thanks to Karel Tavernier himself!)
 
 WIP:
 - StepMode
@@ -24,5 +25,8 @@ TBD:
 - Procesing of Metadata (attributes...)
 - Moire/Thermal (included, but not fully tested)
 - Formula calculation (included, but not fully tested)
-- Resulting in full compatibility with Gerber RS-274X/Gerber X3
+- Full compatibility with Gerber RS-274X/Gerber X3
 - PDF output
+
+Currently known bugs:
+- Wrong center point for zooming in the GerberGadget when using 90°/270° rotation

@@ -3,12 +3,11 @@
 ;- Fix für Zoom/Bewegung bei Rotation
 ;- Mehrere Map-Zugriffe nacheinander ohne erneutes Hashing
 ;- PDF-Ausgabe
-;- SVG-Ausgabe korrigieren (Skalierung korrekt berechnen...)
 ;- Moire/Thermal testen
 ;- Terme testen
 
 ;{ PureGerber Module 1.0 WIP
-;05.02.2024
+;06.02.2024
 ;by Jac de Lad
 ;For all platforms (tested only on Windows)
 ;
@@ -47,7 +46,7 @@
 ;}
 
 DeclareModule PureGerber
-  #Gerber_Version = "1.0 WIP 05.02.2024"  
+  #Gerber_Version = "1.0 WIP 06.02.2024"  
   Enumeration Gerber_FillMode
     #Gerber_FillMode_Fill        ;Fill polygons
     #Gerber_FillMode_Skeleton    ;Draw Skeleton
@@ -208,6 +207,7 @@ Module PureGerber
   #Gerber_MagicNumber = $208E0EABE50B1EC7;PureGerberObject
   #Gerber_Gadget_StandardZoom = 0.1      ;Standard zoom value on GerberGadget (±0.2*CurrentZoom)
   #Gerber_DrawScaling = 0.98             ;Inital scaling factor, 1% of space on each side by default
+  #HalfPi = #PI/2
   
   ;{ Enumerations
   Enumeration OmittedZeros
@@ -299,7 +299,7 @@ Module PureGerber
     #Gerber_ShuntYardOperator_Times
     #Gerber_ShuntYardOperator_Divide
   EndEnumeration
-;}
+  ;}
   ;{ Regular Expressions
   Global Gerber_RegEx_AB=CreateRegularExpression(#PB_Any,"^AB(D\d+)?$")
   Global Gerber_RegEx_AD=CreateRegularExpression(#PB_Any,"^ADD(\d+)([^\,\%]+)\,?(.*)$")
@@ -318,6 +318,7 @@ Module PureGerber
   Global Gerber_RegEx_OF=CreateRegularExpression(#PB_Any,"^OF([AB]-?[\d\.]+)?(B-?[\d\.]+)?$")
   Global Gerber_RegEx_SF=CreateRegularExpression(#PB_Any,"^SF([AB][\d\.]+)([B][\d\.]+)?$")
   Global Gerber_RegEx_SR=CreateRegularExpression(#PB_Any,"^SRX(\d+)Y(\d+)I(-?\d*\.?\d*)J(-?\d*\.?\d*)$")
+  Global Gerber_RegEx_SREnd=CreateRegularExpression(#PB_Any,"^SR$")
   Global Gerber_RegEx_TF=CreateRegularExpression(#PB_Any,"^TF\.(\w+)\,(.+)$")
   Global Gerber_RegEx_EM_IsTerm=CreateRegularExpression(#PB_Any,"\+|\-|x|\/")
   Global Gerber_RegEx_EM_Set=CreateRegularExpression(#PB_Any,"^\$(\d+)=(.+)$")
@@ -331,12 +332,12 @@ Module PureGerber
   Global Gerber_Command_D01=CreateRegularExpression(#PB_Any,"^([XYIJ])(-?\d+)(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?(([XYIJ])(-?\d+))?D01$")
   Global Gerber_Command_D02=CreateRegularExpression(#PB_Any,"^([XY])(-?\d*)(([XY])(-?\d*))?D02$")
   Global Gerber_Command_D03=CreateRegularExpression(#PB_Any,"^(G55)?([XY])(-?\d+)(([XY])(-?\d+))?D03$")
-  Global Gerber_Command_FollowUp=CreateRegularExpression(#PB_Any,"^([XYIJ]-?\d+){1,4}$")
+  Global Gerber_Command_FollowUp=CreateRegularExpression(#PB_Any,"^([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?$")
   Global Gerber_Command_G01=CreateRegularExpression(#PB_Any,"^G01([XY])(-?\d+)(([XY])(-?\d+))?(D0[123])?$")
   Global Gerber_Command_G23=CreateRegularExpression(#PB_Any,"^G0[23]([XYIJ]-?\d+)([XYIJ]-?\d+)?([XYIJ]-?\d+)?([XYIJ]-?\d+)?(D01)?$")
   Global Gerber_Command_G04=CreateRegularExpression(#PB_Any,"^G04.*$")
-  Global Gerber_Command_M=CreateRegularExpression(#PB_Any,"^M(\d{2})$")
-  Global Gerber_Command_Single=CreateRegularExpression(#PB_Any,"^G(\d{2})$")
+  Global Gerber_Command_M=CreateRegularExpression(#PB_Any,"^M(\d\d)$")
+  Global Gerber_Command_Single=CreateRegularExpression(#PB_Any,"^G(\d\d)$")
   ;}
   ;{ Structures
   Structure GerberGadget
@@ -392,7 +393,7 @@ Module PureGerber
   LoadDefaultApertures()
   ;}
   
-  ;{ DataSection, don't ever touch!!!
+  ;{ DataSection, don't dare to touch!!!
   DataSection
     PaceIDs:
     Data.a 1,13,5,5,1,21,21,45,37,1
@@ -688,6 +689,12 @@ Module PureGerber
     DataSet\X=*Position\X+Len*Cos(Rot)**Gerber\Data\ScaleFactor
     DataSet\Y=*Position\Y+Len*Sin(Rot)**Gerber\Data\ScaleFactor
   EndMacro
+  Procedure.a GetArc(Value.d)
+    If Value<0
+      Value+2*#Pi
+    EndIf
+    ProcedureReturn Bool(Value>=0 And Value<=#HalfPi)
+  EndProcedure
   Macro AddError(MyError)
     LastElement(*Gerber\Log\Errors())
     AddElement(*Gerber\Log\Errors())
@@ -965,15 +972,18 @@ Module PureGerber
   EndProcedure
   
   Procedure PlotGerber(*Gerber.Gerber,Array Path.s(1),List CacheList.Gerber_Pace())
-    Protected Counter.a,Temp$,Position.Pos,Aperture.s,NewPosition.Pos,Center.Pos,GMode.a,Rad.d,OldPosition.Pos,G36.a,ErrCount.l=ListSize(*Gerber\Log\Errors()),I.d,J.d,MMC.a,Pos.l,Max.l,LastD.a
-    Protected SRX.l,SRY.l,SRI.d,SRJ.d
+    Protected.a Counter,GMode,G36,G74,LastD,MMC
+    Protected.l ErrCount=ListSize(*Gerber\Log\Errors()),Pos,Max,SRPos
+    Protected.w X,Y,CX,CY
+    Protected.d Rad,I,J,Deviation
+    Protected.s Aperture,Temp$
+    Protected.Pos Position,NewPosition,OldPosition,Center
+    Protected NewList BlockStack.Gerber_BlockStack(),NewList SRDeltaList.Pos()
     ResetMap(*Gerber\Data\Apertures())
     MovePathCursor(0,0)
     Position\X=0:Position\Y=0
     NewPosition\X=0:NewPosition\Y=0
     *Gerber\Cache\Delta\X=0:*Gerber\Cache\Delta\Y=0
-    
-    Protected NewList BlockStack.Gerber_BlockStack()
     
     With *Gerber\Data
       Max=ArraySize(Path())
@@ -981,6 +991,7 @@ Module PureGerber
         
         Repeat
           
+          ;{ Aperture Block handling
           If ListSize(BlockStack())>0
             If BlockStack()\Counter<=ArraySize(BlockStack()\Commands())
               Path(Pos)=BlockStack()\Commands(BlockStack()\Counter)
@@ -1003,10 +1014,12 @@ Module PureGerber
               Continue
             EndIf
           EndIf
-          
+          ;}
+          ;{ FollowUp commands          
           If MatchRegularExpression(Gerber_Command_FollowUp,Path(Pos))
-            Path(Pos)=Path(Pos)+"D0"+Str(LastD)
+            Path(Pos)="G0"+Str(GMode)+Path(Pos)+"D0"+Str(LastD)
           EndIf
+          ;}
           
           If ExamineRegularExpression(Gerber_Command_G04,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_G04)
             ;{ G04: Comment (will be ignored)
@@ -1028,10 +1041,8 @@ Module PureGerber
                     EndIf
                   Case #Gerber_AT_Rectangle
                     If \Apertures()\X<>0
-                      SRI=0.5*\Apertures()\X
-                      SRJ=0.5*\Apertures()\Y
-                      AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor)
-                      AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor)
+                      AddPathBox(OldPosition\X-0.5*\Apertures()\X,OldPosition\Y-0.5*\Apertures()\Y,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor)
+                      AddPathBox(Position\X-0.5*\Apertures()\X,Position\Y-0.5*\Apertures()\Y,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor)
                     EndIf
                 EndSelect          
                 MovePathCursor(Position\X,Position\Y)
@@ -1079,10 +1090,8 @@ Module PureGerber
                         AddPathCircle(OldPosition\X,OldPosition\Y,Rad**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
                         AddPathCircle(Position\X,Position\Y,Rad**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
                       Case #Gerber_AT_Rectangle
-                        SRI=0.5*\Apertures()\X
-                        SRJ=0.5*\Apertures()\Y
-                        AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
-                        AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
+                        AddPathBox(OldPosition\X-0.5*\Apertures()\X,OldPosition\Y-0.5*\Apertures()\Y,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
+                        AddPathBox(Position\X-0.5*\Apertures()\X,Position\Y-0.5*\Apertures()\Y,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
                     EndSelect
                     MovePathCursor(OldPosition\X,OldPosition\Y,#PB_Path_Default)
                   EndIf
@@ -1127,10 +1136,8 @@ Module PureGerber
                         AddPathCircle(OldPosition\X,OldPosition\Y,Rad**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
                         AddPathCircle(Position\X,Position\Y,Rad**Gerber\Data\ScaleFactor,0,360,#PB_Path_Default)
                       Case #Gerber_AT_Rectangle
-                        SRI=0.5*\Apertures()\X
-                        SRJ=0.5*\Apertures()\Y
-                        AddPathBox(OldPosition\X-SRI,OldPosition\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
-                        AddPathBox(Position\X-SRI,Position\Y-SRJ,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
+                        AddPathBox(OldPosition\X-0.5*\Apertures()\X,OldPosition\Y-0.5*\Apertures()\Y,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
+                        AddPathBox(Position\X-0.5*\Apertures()\X,Position\Y-0.5*\Apertures()\Y,\Apertures()\X**Gerber\Data\ScaleFactor,\Apertures()\Y**Gerber\Data\ScaleFactor,#PB_Path_Default)
                     EndSelect
                     MovePathCursor(OldPosition\X,OldPosition\Y,#PB_Path_Default)
                     AddPathLine(Position\X,Position\Y,#PB_Path_Default)
@@ -1150,41 +1157,120 @@ Module PureGerber
             NewPosition\Y=Position\Y
             Center\X=Position\X
             Center\Y=Position\Y
+            I=0:J=0;Only for G74-mode, but encasing it in "If G74" seems a bit like an overreaction
             For Counter=1 To CountRegularExpressionGroups(Gerber_Command_G23)
               Temp$=RegularExpressionGroup(Gerber_Command_G23,Counter)
               Select Left(Temp$,1)
                 Case "X"
                   If *Gerber\Header\CoordinateMode=#Gerber_Coord_Absolute
-                    NewPosition\X=ValD(Right(Temp$,Len(Temp$)-1))
+                    NewPosition\X=ValD(Mid(Temp$,2))
                   Else
-                    NewPosition\X=Position\X+ValD(Right(Temp$,Len(Temp$)-1))
+                    NewPosition\X=Position\X+ValD(Mid(Temp$,2))
                   EndIf
                 Case "Y"
                   If *Gerber\Header\CoordinateMode=#Gerber_Coord_Absolute
-                    NewPosition\Y=ValD(Right(Temp$,Len(Temp$)-1))
+                    NewPosition\Y=ValD(Mid(Temp$,2))
                   Else
-                    NewPosition\Y=Position\Y+ValD(Right(Temp$,Len(Temp$)-1))
+                    NewPosition\Y=Position\Y+ValD(Mid(Temp$,2))
                   EndIf
                 Case "I"
-                  Center\X=Position\X+ValD(Right(Temp$,Len(Temp$)-1))
+                  If G74
+                    I=Abs(ValD(Mid(Temp$,2)))
+                  Else
+                    Center\X=Position\X+ValD(Mid(Temp$,2))
+                  EndIf
                 Case "J"
-                  Center\Y=Position\Y+ValD(Right(Temp$,Len(Temp$)-1))
+                  If G74
+                    J=Abs(ValD(Mid(Temp$,2)))
+                  Else
+                    Center\Y=Position\Y+ValD(Mid(Temp$,2))
+                  EndIf
               EndSelect
             Next
+            ;{ G74 arc center calculation (deprecated, but in for compatibility)
+            If G74
+              Deviation=-1
+              If GMode=3
+                If GetArc(ATan2(NewPosition\X-(Position\X+I),NewPosition\Y-(Position\Y+J))-ATan2(Position\X-(Position\X+I),Position\Y-(Position\Y+J)))
+                  Rad=Abs(Pow(Pow(I,2)+Pow(J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X-I),2)+Pow(NewPosition\Y-(Position\Y-J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X+I
+                    Center\Y=Position\Y+J
+                    Deviation=Rad
+                  EndIf
+                EndIf
+                If GetArc(ATan2(NewPosition\X-(Position\X-I),NewPosition\Y-(Position\Y+J))-ATan2(Position\X-(Position\X-I),Position\Y-(Position\Y+J)))
+                  Rad=Abs(Pow(Pow(-I,2)+Pow(J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X+I),2)+Pow(NewPosition\Y-(Position\Y-J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X-I
+                    Center\Y=Position\Y+J
+                    Deviation=Rad
+                  EndIf
+                EndIf
+                If GetArc(ATan2(NewPosition\X-(Position\X-I),NewPosition\Y-(Position\Y-J))-ATan2(Position\X-(Position\X-I),Position\Y-(Position\Y-J)))
+                  Rad=Abs(Pow(Pow(-I,2)+Pow(-J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X+I),2)+Pow(NewPosition\Y-(Position\Y+J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X-I
+                    Center\Y=Position\Y-J
+                    Deviation=Rad
+                  EndIf
+                EndIf
+                If GetArc(ATan2(NewPosition\X-(Position\X+I),NewPosition\Y-(Position\Y-J))-ATan2(Position\X-(Position\X+I),Position\Y-(Position\Y-J)))
+                  Rad=Abs(Pow(Pow(I,2)+Pow(-J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X-I),2)+Pow(NewPosition\Y-(Position\Y+J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X+I
+                    Center\Y=Position\Y-J
+                    Deviation=Rad
+                  EndIf
+                EndIf
+              Else
+                If GetArc(ATan2(Position\X-(Position\X+I),Position\Y-(Position\Y+J))-ATan2(NewPosition\X-(Position\X+I),NewPosition\Y-(Position\Y+J)))
+                  Rad=Abs(Pow(Pow(I,2)+Pow(J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X-I),2)+Pow(NewPosition\Y-(Position\Y-J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X+I
+                    Center\Y=Position\Y+J
+                  EndIf
+                EndIf
+                If GetArc(ATan2(Position\X-(Position\X-I),Position\Y-(Position\Y+J))-ATan2(NewPosition\X-(Position\X-I),NewPosition\Y-(Position\Y+J)))
+                  Rad=Abs(Pow(Pow(-I,2)+Pow(J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X+I),2)+Pow(NewPosition\Y-(Position\Y-J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X-I
+                    Center\Y=Position\Y+J
+                  EndIf
+                EndIf
+                If GetArc(ATan2(Position\X-(Position\X-I),Position\Y-(Position\Y-J))-ATan2(NewPosition\X-(Position\X-I),NewPosition\Y-(Position\Y-J)))
+                  Rad=Abs(Pow(Pow(-I,2)+Pow(-J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X+I),2)+Pow(NewPosition\Y-(Position\Y+J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X-I
+                    Center\Y=Position\Y-J
+                  EndIf
+                EndIf
+                If GetArc(ATan2(Position\X-(Position\X+I),Position\Y-(Position\Y-J))-ATan2(NewPosition\X-(Position\X+I),NewPosition\Y-(Position\Y-J)))
+                  Rad=Abs(Pow(Pow(I,2)+Pow(-J,2),0.5)-Pow(Pow(NewPosition\X-(Position\X-I),2)+Pow(NewPosition\Y-(Position\Y+J),2),0.5))
+                  If Deviation=-1 Or Rad<Deviation
+                    Center\X=Position\X+I
+                    Center\Y=Position\Y-J
+                  EndIf
+                EndIf
+              EndIf
+            EndIf
+            ;}
             If NewPosition\X=Position\X And NewPosition\Y=Position\Y
-              Rad=Pow(Pow(Center\X-Position\X,2)+Pow(Center\Y-Position\Y,2),0.5)
-              If Center\X=Position\X Or Center\Y=Position\Y;Rad<=\Apertures(Aperture)\Diameter/2
-                MovePathCursor(Position\X,Position\Y)
-                If Rad<\Apertures(Aperture)\Diameter/2
-                  AddPathLine(Center\X,Center\Y,#PB_Path_Default)
+              If G74
+                AddPathCircle(Position\X,Position\Y,\Apertures(Aperture)\Diameter/2)
+              Else
+                Rad=Pow(Pow(Center\X-Position\X,2)+Pow(Center\Y-Position\Y,2),0.5)
+                If Center\X=Position\X Or Center\Y=Position\Y;Rad<=\Apertures(Aperture)\Diameter/2
+                  MovePathCursor(Position\X,Position\Y)
+                  If Rad<\Apertures(Aperture)\Diameter/2
+                    AddPathLine(Center\X,Center\Y,#PB_Path_Default)
+                  Else
+                    AddPathCircle(Center\X,Center\Y,Rad)
+                  EndIf
                 Else
                   AddPathCircle(Center\X,Center\Y,Rad)
                 EndIf
-              Else
-                Debug Rad
-                AddPathCircle(Center\X,Center\Y,Rad)
               EndIf
-              ;DrawGerber(Position)
             Else
               Rad=Pow(Pow(Center\X-Position\X,2)+Pow(Center\Y-Position\Y,2),0.5)
               If *Gerber\FillMode=#Gerber_FillMode_Skeleton
@@ -1210,13 +1296,6 @@ Module PureGerber
             EndIf
             Position\X=NewPosition\X
             Position\Y=NewPosition\Y
-            If Not G36
-              If *Gerber\FillMode=#Gerber_FillMode_Fill And \Apertures(Aperture)\Diameter>0
-                ;StrokePath(\Apertures(Aperture)\Diameter,#PB_Path_RoundEnd)
-              Else
-                ;StrokePath(1,#PB_Path_RoundEnd)
-              EndIf
-            EndIf
             LastD=1
             ;}
           ElseIf ExamineRegularExpression(Gerber_Command_SelectAperture,Path(Pos)) And NextRegularExpressionMatch(Gerber_Command_SelectAperture)
@@ -1300,6 +1379,36 @@ Module PureGerber
             ;  SF: Scale factor (obsolete and ignored)
           ElseIf MatchRegularExpression(Gerber_RegEx_IP,Path(Pos)) 
             ;  IP: Image polarity (obsolete and ignored)
+          ElseIf MatchRegularExpression(Gerber_RegEx_SR,Path(Pos)) 
+            ;{ SR: Step and Repeat -> Build SR stack
+            If ExamineRegularExpression(Gerber_RegEx_SR,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_SR)
+              X=Val(RegularExpressionGroup(Gerber_RegEx_SR,1))
+              Y=Val(RegularExpressionGroup(Gerber_RegEx_SR,2))
+              I=ValD(RegularExpressionGroup(Gerber_RegEx_SR,3))
+              J=ValD(RegularExpressionGroup(Gerber_RegEx_SR,4))
+              If Not (X=1 And Y=1 And I=0 And J=0);Filter special case which occurs quite common (and has no effect on the board)
+                For CX=0 To X-1
+                  For CY=0 To Y-1
+                    AddElement(SRDeltaList())
+                    SRDeltaList()\X=CX*I
+                    SRDeltaList()\Y=CY*J
+                  Next
+                Next
+                FirstElement(SRDeltaList())
+                SRPos=Pos+1
+              EndIf
+            Else
+              AddError("SR-Error: "+Path(Pos))
+            EndIf
+            ;}
+          ElseIf MatchRegularExpression(Gerber_RegEx_SREnd,Path(Pos)) 
+            ;{ SR: Step and repeat -> Get next element/back to normal
+            TranslateCoordinates(-1*SRDeltaList()\X,-1*SRDeltaList()\Y,#PB_Coordinate_User)
+            If DeleteElement(SRDeltaList(),#True)
+              TranslateCoordinates(SRDeltaList()\X,SRDeltaList()\Y,#PB_Coordinate_User)
+              Pos=SRPos
+            EndIf
+            ;}
           ElseIf ExamineRegularExpression(Gerber_RegEx_LP,Path(Pos)) And NextRegularExpressionMatch(Gerber_RegEx_LP)
             ;{ LPx: Set to Dark/Clear Mode
             DrawGerber(Position)
@@ -1346,7 +1455,11 @@ Module PureGerber
             Select RegularExpressionGroup(Gerber_Command_Single,1)
               Case "01","02","03"
                 GMode=Val(RegularExpressionGroup(Gerber_Command_Single,1))
-              Case "04","06","07","10","11","12","24","28","52","53","55","56","57","58","59","60","62","70","71","74","75","90","91","92"
+              Case "75"
+                G74=#False
+              Case "74"
+                G74=#True
+              Case "04","06","07","10","11","12","24","28","52","53","55","56","57","58","59","60","62","70","71","90","91","92"
                 ;{ Ignored commands (all obsolete or comments)
                 ;  G04: Ignore, it's a comment
                 ;  G06: Parabolic interpolation (obsolete)
@@ -1367,8 +1480,6 @@ Module PureGerber
                 ;  G62: Linear interpolation 100X (obsolete)
                 ;  G70: Set unit to inch (obsolete)
                 ;  G71: Set unit to mm (obsolete)
-                ;  G74: Switch To quadrant mode (obsolete)
-                ;  G75: Switch To linear plotting (obsolete)
                 ;  G90: Set coordinate format to absolute notation (obsolete)
                 ;  G91: Set coordinate format to incremental notation (obsolete)
                 ;  G92: Specifiy work origin (obsolete)
@@ -1736,16 +1847,18 @@ Module PureGerber
   
   CompilerIf #PB_Compiler_OS=#PB_OS_Linux Or #PB_Compiler_Version>=610
     Procedure PlotGerberToSvg(*Gerber.Gerber,File$)
-      If IsGerber(*Gerber)  
-        If StartVectorDrawing(SvgVectorOutput(File$,*Gerber\Max\X-*Gerber\Min\X,*Gerber\Max\Y-*Gerber\Min\Y,#PB_Unit_Pixel))
-          ScaleCoordinates(0.1,0.1,#PB_Coordinate_User)
+      If IsGerber(*Gerber)
+        If StartVectorDrawing(SvgVectorOutput(File$,1.02**Gerber\BoardSize\X,1.02**Gerber\BoardSize\Y,#PB_Unit_Millimeter))
+          ScaleCoordinates((1+24.4*Bool(*Gerber\Unit=#Gerber_Unit_Inch))/*Gerber\Header\Scaling,(1+24.4*Bool(*Gerber\Unit=#Gerber_Unit_Inch))/*Gerber\Header\Scaling,#PB_Coordinate_User)
           TranslateCoordinates(-*Gerber\Min\X,*Gerber\Min\Y,#PB_Coordinate_User)
-          TranslateCoordinates(0.5*(1-*Gerber\DrawScaling)*(*Gerber\Max\X-*Gerber\Min\X),0.5*(1-*Gerber\DrawScaling)*(*Gerber\Max\Y-*Gerber\Min\Y),#PB_Coordinate_User)
+          TranslateCoordinates(0.01*(*Gerber\Max\X-*Gerber\Min\X),0.01*(*Gerber\Max\Y-*Gerber\Min\Y),#PB_Coordinate_User)
           FlipCoordinatesY(0.5*(*Gerber\Max\Y-*Gerber\Min\Y),#PB_Coordinate_User)
           PlotFromCache(*Gerber\Cache\Filled(),*Gerber)
           StopVectorDrawing()
+          ProcedureReturn 1
         EndIf
       EndIf
+      ProcedureReturn 0
     EndProcedure
   CompilerEndIf
   ;}
@@ -1960,7 +2073,7 @@ Module PureGerber
       Temp$=StringField(ATemp$,ACounter,"*")
       If Left(Temp$,1)="0";Sort out comments and add them to the comment list
         AddElement(*Gerber\Header\Comments())
-        *Gerber\Header\Comments()=Right(Temp$,Len(Temp$)-1)
+        *Gerber\Header\Comments()=Mid(Temp$,2)
       Else
         AddElement(*Gerber\Data\ApertureMacro(MacroName$)\Primitives())
         *Gerber\Data\ApertureMacro()\Primitives()\Type=Val(StringField(Temp$,1,","))
@@ -2417,7 +2530,7 @@ Module PureGerber
                   ACount=0
                   For ACounter=1 To CountRegularExpressionGroups(Gerber_RegEx_SF)
                     Temp$=RegularExpressionGroup(Gerber_RegEx_SF,ACounter)
-                    Temp$=Right(Temp$,Len(Temp$)-1)
+                    Temp$=Mid(Temp$,2)
                     If Left(Temp$,1)=".":Temp$="0"+Temp$:EndIf
                     If ValF(Temp$)<>1.0
                       ACount=1
@@ -2444,14 +2557,19 @@ Module PureGerber
                 EndIf
                 ;}
               ElseIf MatchRegularExpression(Gerber_RegEx_SR,STemp$)
-                ;{ SR -> Step and repeat (todo)
+                ;{ SR -> Step and repeat
                 If ExamineRegularExpression(Gerber_RegEx_SR,STemp$) And NextRegularExpressionMatch(Gerber_RegEx_SR)
                   If Val(RegularExpressionGroup(Gerber_RegEx_SR,1))<>1 Or Val(RegularExpressionGroup(Gerber_RegEx_SR,2))<>1
-                    AddError("Step and repeat command which can't be processed (because it's not programmed yet)!")
+                    SplitL(Trim(RAWSTemp$,"*"),Path())
+                    ;AddError("Step and repeat command which can't be processed (because it's not programmed yet)!")
                   EndIf
                 Else
                   AddError("Stepmode error: "+STemp$)
                 EndIf
+                ;}
+              ElseIf MatchRegularExpression(Gerber_RegEx_SREnd,STemp$)
+                ;{ SR -> Step and repeat (ending)
+                SplitL(Trim(RAWSTemp$,"*"),Path())
                 ;}
               ElseIf MatchRegularExpression(Gerber_RegEx_OF,STemp$)
                 ;{ OF -> Offset factor (deprecated in December 2012, completely ignored)
@@ -2676,8 +2794,9 @@ Module PureGerber
 EndModule
 
 ; IDE Options = PureBasic 6.10 beta 3 (Windows - x64)
-; CursorPosition = 10
-; Folding = DAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAg
+; CursorPosition = 1408
+; FirstLine = 59
+; Folding = AAACAAAAAAAAAAQAAwBAAACAAAAAAAAAAAAAAAAAA9
 ; Optimizer
 ; EnableAsm
 ; EnableThread
